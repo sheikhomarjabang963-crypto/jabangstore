@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react';
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
 import { supabase } from './lib/supabase';
 
 type Business = {
@@ -11,11 +17,6 @@ type Business = {
 type BusinessUser = {
   id: string;
   email: string;
-};
-
-type BusinessMembership = {
-  business_id: string;
-  role: string;
 };
 
 type Category = {
@@ -54,6 +55,29 @@ type Branch = {
   phone: string | null;
 };
 
+type InventorySummary = {
+  product_id: string;
+  product_name: string;
+  sku: string | null;
+  selling_price: number;
+  cost_price: number;
+  low_stock_threshold: number;
+  quantity: number;
+  inventory_value: number;
+  status: 'in_stock' | 'low_stock' | 'out_of_stock';
+};
+
+type InventoryMovement = {
+  id: string;
+  product_id: string;
+  product_name: string;
+  branch_id: string;
+  movement_type: string;
+  quantity: number;
+  reference_type: string | null;
+  created_at: string;
+};
+
 type DashboardStats = {
   products: number;
   customers: number;
@@ -68,39 +92,62 @@ type RecentSale = {
   created_at: string;
 };
 
+type OwnerPage =
+  | 'dashboard'
+  | 'products'
+  | 'inventory'
+  | 'pos'
+  | 'customers'
+  | 'reports'
+  | 'settings';
+
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  const [platformRole, setPlatformRole] = useState('user');
+  const [platformRole, setPlatformRole] =
+    useState('user');
 
-  const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [loadingBusinesses, setLoadingBusinesses] = useState(false);
+  const [businesses, setBusinesses] =
+    useState<Business[]>([]);
 
-  const [users, setUsers] = useState<BusinessUser[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingBusinesses, setLoadingBusinesses] =
+    useState(false);
+
+  const [users, setUsers] =
+    useState<BusinessUser[]>([]);
+
+  const [loadingUsers, setLoadingUsers] =
+    useState(false);
 
   const [error, setError] = useState('');
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [businessName, setBusinessName] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [showCreate, setShowCreate] =
+    useState(false);
+
+  const [businessName, setBusinessName] =
+    useState('');
+
+  const [creating, setCreating] =
+    useState(false);
 
   const [selectedBusiness, setSelectedBusiness] =
     useState<Business | null>(null);
 
-  const [selectedOwner, setSelectedOwner] = useState('');
-  const [assigningOwner, setAssigningOwner] = useState(false);
+  const [selectedOwner, setSelectedOwner] =
+    useState('');
+
+  const [assigningOwner, setAssigningOwner] =
+    useState(false);
 
   const [ownerBusiness, setOwnerBusiness] =
     useState<Business | null>(null);
 
-  const [ownerLoading, setOwnerLoading] = useState(false);
+  const [ownerLoading, setOwnerLoading] =
+    useState(false);
 
   const [ownerPage, setOwnerPage] =
-    useState<'dashboard' | 'products' | 'inventory' | 'pos' | 'customers' | 'reports' | 'settings'>(
-      'dashboard'
-    );
+    useState<OwnerPage>('dashboard');
 
   const [dashboardStats, setDashboardStats] =
     useState<DashboardStats>({
@@ -180,6 +227,66 @@ export default function App() {
   const [productLowStock, setProductLowStock] =
     useState('5');
 
+  /*
+   * ========================================================
+   * INVENTORY STATE
+   * ========================================================
+   */
+
+  const [inventorySummary, setInventorySummary] =
+    useState<InventorySummary[]>([]);
+
+  const [inventoryMovements, setInventoryMovements] =
+    useState<InventoryMovement[]>([]);
+
+  const [loadingInventory, setLoadingInventory] =
+    useState(false);
+
+  const [loadingMovements, setLoadingMovements] =
+    useState(false);
+
+  const [inventorySearch, setInventorySearch] =
+    useState('');
+
+  const [selectedBranch, setSelectedBranch] =
+    useState('');
+
+  const [showRestockForm, setShowRestockForm] =
+    useState(false);
+
+  const [restockProductId, setRestockProductId] =
+    useState('');
+
+  const [restockQuantity, setRestockQuantity] =
+    useState('');
+
+  const [restockUnitCost, setRestockUnitCost] =
+    useState('');
+
+  const [restocking, setRestocking] =
+    useState(false);
+
+  const [showAdjustmentForm, setShowAdjustmentForm] =
+    useState(false);
+
+  const [adjustmentProductId, setAdjustmentProductId] =
+    useState('');
+
+  const [adjustmentQuantity, setAdjustmentQuantity] =
+    useState('');
+
+  const [adjustmentReason, setAdjustmentReason] =
+    useState('');
+
+  const [adjusting, setAdjusting] =
+    useState(false);
+
+  /*
+   * ========================================================
+   * AUTH
+   * ========================================================
+   */
+
   useEffect(() => {
     loadSession();
 
@@ -198,11 +305,14 @@ export default function App() {
           return;
         }
 
-        await loadUserProfile(newSession.user.id);
+        await loadUserProfile(
+          newSession.user.id
+        );
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () =>
+      subscription.unsubscribe();
   }, []);
 
   async function loadSession() {
@@ -215,13 +325,18 @@ export default function App() {
 
     if (data.session) {
       setSession(data.session);
-      await loadUserProfile(data.session.user.id);
+
+      await loadUserProfile(
+        data.session.user.id
+      );
     }
 
     setLoading(false);
   }
 
-  async function loadUserProfile(userId: string) {
+  async function loadUserProfile(
+    userId: string
+  ) {
     setError('');
 
     const { data, error } =
@@ -236,7 +351,8 @@ export default function App() {
       return;
     }
 
-    const role = data?.platform_role || 'user';
+    const role =
+      data?.platform_role || 'user';
 
     setPlatformRole(role);
 
@@ -249,13 +365,21 @@ export default function App() {
     await loadOwnerBusiness(userId);
   }
 
+  /*
+   * ========================================================
+   * SUPER ADMIN
+   * ========================================================
+   */
+
   async function loadBusinesses() {
     setLoadingBusinesses(true);
 
     const { data, error } =
       await supabase
         .from('businesses')
-        .select('id, name, status, created_at')
+        .select(
+          'id, name, status, created_at'
+        )
         .order('created_at', {
           ascending: false,
         });
@@ -273,7 +397,9 @@ export default function App() {
     setLoadingUsers(true);
 
     const { data, error } =
-      await supabase.rpc('get_business_users');
+      await supabase.rpc(
+        'get_business_users'
+      );
 
     if (error) {
       setError(error.message);
@@ -285,14 +411,17 @@ export default function App() {
   }
 
   async function createBusiness(
-    e: React.FormEvent
+    e: FormEvent
   ) {
     e.preventDefault();
 
-    const name = businessName.trim();
+    const name =
+      businessName.trim();
 
     if (!name) {
-      setError('Please enter a business name.');
+      setError(
+        'Please enter a business name.'
+      );
       return;
     }
 
@@ -300,9 +429,12 @@ export default function App() {
     setError('');
 
     const { error } =
-      await supabase.rpc('create_business', {
-        business: name,
-      });
+      await supabase.rpc(
+        'create_business',
+        {
+          business: name,
+        }
+      );
 
     if (error) {
       setError(error.message);
@@ -316,8 +448,13 @@ export default function App() {
   }
 
   async function assignOwner() {
-    if (!selectedBusiness || !selectedOwner) {
-      setError('Please select a business owner.');
+    if (
+      !selectedBusiness ||
+      !selectedOwner
+    ) {
+      setError(
+        'Please select a business owner.'
+      );
       return;
     }
 
@@ -325,12 +462,16 @@ export default function App() {
     setError('');
 
     const { error } =
-      await supabase.rpc('assign_business_owner', {
-        target_business_id:
-          selectedBusiness.id,
-        target_user_id:
-          selectedOwner,
-      });
+      await supabase.rpc(
+        'assign_business_owner',
+        {
+          target_business_id:
+            selectedBusiness.id,
+
+          target_user_id:
+            selectedOwner,
+        }
+      );
 
     if (error) {
       setError(error.message);
@@ -338,11 +479,32 @@ export default function App() {
       alert(
         'Business owner assigned successfully.'
       );
+
       setSelectedOwner('');
     }
 
     setAssigningOwner(false);
   }
+
+  function openBusiness(
+    business: Business
+  ) {
+    setSelectedBusiness(business);
+    setSelectedOwner('');
+    setError('');
+  }
+
+  function closeBusiness() {
+    setSelectedBusiness(null);
+    setSelectedOwner('');
+    setError('');
+  }
+
+  /*
+   * ========================================================
+   * OWNER BUSINESS
+   * ========================================================
+   */
 
   async function loadOwnerBusiness(
     userId: string
@@ -372,19 +534,24 @@ export default function App() {
       return;
     }
 
-    const { data: business, error: businessError } =
-      await supabase
-        .from('businesses')
-        .select(
-          'id, name, status, created_at'
-        )
-        .eq('id', data.business_id)
-        .maybeSingle();
+    const {
+      data: business,
+      error: businessError,
+    } = await supabase
+      .from('businesses')
+      .select(
+        'id, name, status, created_at'
+      )
+      .eq('id', data.business_id)
+      .maybeSingle();
 
     if (businessError) {
-      setError(businessError.message);
+      setError(
+        businessError.message
+      );
     } else {
       setOwnerBusiness(business);
+
       await loadOwnerDashboard(
         data.business_id
       );
@@ -407,8 +574,13 @@ export default function App() {
     ] = await Promise.all([
       supabase
         .from('products')
-        .select('id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active')
-        .eq('business_id', businessId),
+        .select(
+          'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active'
+        )
+        .eq(
+          'business_id',
+          businessId
+        ),
 
       supabase
         .from('customers')
@@ -416,26 +588,40 @@ export default function App() {
           count: 'exact',
           head: true,
         })
-        .eq('business_id', businessId),
-
-      supabase
-        .from('sales')
-        .select('id, total, created_at')
-        .eq('business_id', businessId),
-
-      supabase
-        .from('inventory')
-        .select(
-          'id, product_id, branch_id, quantity'
-        )
-        .eq('business_id', businessId),
+        .eq(
+          'business_id',
+          businessId
+        ),
 
       supabase
         .from('sales')
         .select(
           'id, total, created_at'
         )
-        .eq('business_id', businessId)
+        .eq(
+          'business_id',
+          businessId
+        ),
+
+      supabase
+        .from('inventory')
+        .select(
+          'id, product_id, branch_id, quantity'
+        )
+        .eq(
+          'business_id',
+          businessId
+        ),
+
+      supabase
+        .from('sales')
+        .select(
+          'id, total, created_at'
+        )
+        .eq(
+          'business_id',
+          businessId
+        )
         .order('created_at', {
           ascending: false,
         })
@@ -443,38 +629,51 @@ export default function App() {
     ]);
 
     if (productsResult.error) {
-      setError(productsResult.error.message);
+      setError(
+        productsResult.error.message
+      );
       return;
     }
 
     if (customersResult.error) {
-      setError(customersResult.error.message);
+      setError(
+        customersResult.error.message
+      );
       return;
     }
 
     if (salesResult.error) {
-      setError(salesResult.error.message);
+      setError(
+        salesResult.error.message
+      );
       return;
     }
 
     if (inventoryResult.error) {
-      setError(inventoryResult.error.message);
+      setError(
+        inventoryResult.error.message
+      );
       return;
     }
 
     if (recentSalesResult.error) {
-      setError(recentSalesResult.error.message);
+      setError(
+        recentSalesResult.error.message
+      );
       return;
     }
 
     const productData =
-      (productsResult.data || []) as Product[];
+      (productsResult.data ||
+        []) as Product[];
 
     const inventoryData =
-      (inventoryResult.data || []) as InventoryRow[];
+      (inventoryResult.data ||
+        []) as InventoryRow[];
 
     const salesData =
-      (salesResult.data || []) as RecentSale[];
+      (salesResult.data ||
+        []) as RecentSale[];
 
     const startOfDay =
       new Date();
@@ -486,58 +685,85 @@ export default function App() {
       0
     );
 
-    const todaySales = salesData
-      .filter(
-        (sale) =>
-          new Date(sale.created_at) >=
-          startOfDay
-      )
-      .reduce(
-        (sum, sale) =>
-          sum + Number(sale.total || 0),
-        0
-      );
+    const todaySales =
+      salesData
+        .filter(
+          (sale) =>
+            new Date(
+              sale.created_at
+            ) >= startOfDay
+        )
+        .reduce(
+          (sum, sale) =>
+            sum +
+            Number(
+              sale.total || 0
+            ),
+          0
+        );
 
     const lowStock =
-      productData.filter((product) => {
-        const stock = inventoryData
-          .filter(
-            (item) =>
-              item.product_id ===
-              product.id
-          )
-          .reduce(
-            (sum, item) =>
-              sum +
-              Number(item.quantity || 0),
-            0
-          );
+      productData.filter(
+        (product) => {
+          const stock =
+            inventoryData
+              .filter(
+                (item) =>
+                  item.product_id ===
+                  product.id
+              )
+              .reduce(
+                (sum, item) =>
+                  sum +
+                  Number(
+                    item.quantity || 0
+                  ),
+                0
+              );
 
-        return (
-          stock <=
-          Number(
-            product.low_stock_threshold
-          )
-        );
-      });
+          return (
+            stock <=
+            Number(
+              product.low_stock_threshold
+            )
+          );
+        }
+      );
 
     setProducts(productData);
     setInventory(inventoryData);
+
     setRecentSales(
       (recentSalesResult.data ||
         []) as RecentSale[]
     );
-    setLowStockProducts(lowStock);
+
+    setLowStockProducts(
+      lowStock
+    );
 
     setDashboardStats({
-      products: productData.length,
+      products:
+        productData.length,
+
       customers:
         customersResult.count || 0,
-      sales: salesData.length,
-      lowStock: lowStock.length,
+
+      sales:
+        salesData.length,
+
+      lowStock:
+        lowStock.length,
+
       todaySales,
     });
   }
+
+  /*
+   * ========================================================
+   * PRODUCTS
+   * ========================================================
+   */
 
   async function loadProducts(
     businessId: string
@@ -550,7 +776,10 @@ export default function App() {
         .select(
           'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active'
         )
-        .eq('business_id', businessId)
+        .eq(
+          'business_id',
+          businessId
+        )
         .order('created_at', {
           ascending: false,
         });
@@ -577,7 +806,10 @@ export default function App() {
         .select(
           'id, business_id, name, description'
         )
-        .eq('business_id', businessId)
+        .eq(
+          'business_id',
+          businessId
+        )
         .order('name');
 
     if (error) {
@@ -600,27 +832,33 @@ export default function App() {
         .select(
           'id, business_id, name, address, phone'
         )
-        .eq('business_id', businessId)
+        .eq(
+          'business_id',
+          businessId
+        )
         .order('name');
 
     if (error) {
       setError(error.message);
     } else {
-      setBranches(
-        (data || []) as Branch[]
-      );
+      const branchData =
+        (data || []) as Branch[];
+
+      setBranches(branchData);
+
+      if (
+        !selectedBranch &&
+        branchData.length > 0
+      ) {
+        setSelectedBranch(
+          branchData[0].id
+        );
+      }
     }
   }
 
   async function openOwnerPage(
-    page:
-      | 'dashboard'
-      | 'products'
-      | 'inventory'
-      | 'pos'
-      | 'customers'
-      | 'reports'
-      | 'settings'
+    page: OwnerPage
   ) {
     setOwnerPage(page);
     setError('');
@@ -630,19 +868,46 @@ export default function App() {
     }
 
     if (
-      page === 'products' ||
+      page === 'products'
+    ) {
+      await Promise.all([
+        loadProducts(
+          ownerBusiness.id
+        ),
+        loadCategories(
+          ownerBusiness.id
+        ),
+        loadBranches(
+          ownerBusiness.id
+        ),
+      ]);
+    }
+
+    if (
       page === 'inventory'
     ) {
       await Promise.all([
-        loadProducts(ownerBusiness.id),
-        loadCategories(ownerBusiness.id),
-        loadBranches(ownerBusiness.id),
+        loadProducts(
+          ownerBusiness.id
+        ),
+        loadCategories(
+          ownerBusiness.id
+        ),
+        loadBranches(
+          ownerBusiness.id
+        ),
+        loadInventory(
+          ownerBusiness.id
+        ),
+        loadInventoryMovements(
+          ownerBusiness.id
+        ),
       ]);
     }
   }
 
   async function createCategory(
-    e: React.FormEvent
+    e: FormEvent
   ) {
     e.preventDefault();
 
@@ -669,7 +934,10 @@ export default function App() {
         {
           target_business_id:
             ownerBusiness.id,
-          category_name: name,
+
+          category_name:
+            name,
+
           category_description:
             categoryDescription.trim() ||
             null,
@@ -692,7 +960,7 @@ export default function App() {
   }
 
   async function createProduct(
-    e: React.FormEvent
+    e: FormEvent
   ) {
     e.preventDefault();
 
@@ -758,20 +1026,32 @@ export default function App() {
         {
           target_business_id:
             ownerBusiness.id,
-          product_name: name,
+
+          product_name:
+            name,
+
           product_sku:
-            productSku.trim() || null,
+            productSku.trim() ||
+            null,
+
           product_barcode:
-            productBarcode.trim() || null,
+            productBarcode.trim() ||
+            null,
+
           product_description:
             productDescription.trim() ||
             null,
+
           product_category_id:
-            productCategory || null,
+            productCategory ||
+            null,
+
           product_selling_price:
             selling,
+
           product_cost_price:
             cost,
+
           product_low_stock_threshold:
             threshold,
         }
@@ -802,47 +1082,409 @@ export default function App() {
     setCreatingProduct(false);
   }
 
+  /*
+   * ========================================================
+   * INVENTORY
+   * ========================================================
+   */
+
+  async function loadInventory(
+    businessId: string
+  ) {
+    setLoadingInventory(true);
+
+    const { data, error } =
+      await supabase.rpc(
+        'get_inventory_summary',
+        {
+          target_business_id:
+            businessId,
+        }
+      );
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setInventorySummary(
+        (data || []) as InventorySummary[]
+      );
+    }
+
+    setLoadingInventory(false);
+  }
+
+  async function loadInventoryMovements(
+    businessId: string
+  ) {
+    setLoadingMovements(true);
+
+    const { data, error } =
+      await supabase.rpc(
+        'get_inventory_movements',
+        {
+          target_business_id:
+            businessId,
+        }
+      );
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setInventoryMovements(
+        (data || []) as InventoryMovement[]
+      );
+    }
+
+    setLoadingMovements(false);
+  }
+
+  async function refreshInventory() {
+    if (!ownerBusiness) {
+      return;
+    }
+
+    setError('');
+
+    await Promise.all([
+      loadInventory(
+        ownerBusiness.id
+      ),
+
+      loadInventoryMovements(
+        ownerBusiness.id
+      ),
+
+      loadOwnerDashboard(
+        ownerBusiness.id
+      ),
+    ]);
+  }
+
+  function openRestock(
+    productId = ''
+  ) {
+    setError('');
+    setRestockProductId(
+      productId
+    );
+    setRestockQuantity('');
+    setRestockUnitCost('');
+    setShowAdjustmentForm(false);
+    setShowRestockForm(true);
+  }
+
+  function closeRestock() {
+    setShowRestockForm(false);
+    setRestockProductId('');
+    setRestockQuantity('');
+    setRestockUnitCost('');
+  }
+
+  async function restockProduct(
+    e: FormEvent
+  ) {
+    e.preventDefault();
+
+    if (!ownerBusiness) {
+      return;
+    }
+
+    if (!selectedBranch) {
+      setError(
+        'Please select a branch.'
+      );
+      return;
+    }
+
+    if (!restockProductId) {
+      setError(
+        'Please select a product.'
+      );
+      return;
+    }
+
+    const quantity =
+      Number(restockQuantity);
+
+    const unitCost =
+      Number(
+        restockUnitCost || 0
+      );
+
+    if (
+      Number.isNaN(quantity) ||
+      quantity <= 0
+    ) {
+      setError(
+        'Restock quantity must be greater than zero.'
+      );
+      return;
+    }
+
+    if (
+      Number.isNaN(unitCost) ||
+      unitCost < 0
+    ) {
+      setError(
+        'Please enter a valid unit cost.'
+      );
+      return;
+    }
+
+    setRestocking(true);
+    setError('');
+
+    const { error } =
+      await supabase.rpc(
+        'restock_product',
+        {
+          target_business_id:
+            ownerBusiness.id,
+
+          target_product_id:
+            restockProductId,
+
+          target_branch_id:
+            selectedBranch,
+
+          restock_quantity:
+            quantity,
+
+          unit_cost:
+            unitCost,
+        }
+      );
+
+    if (error) {
+      setError(error.message);
+    } else {
+      closeRestock();
+
+      await refreshInventory();
+
+      alert(
+        'Stock restocked successfully.'
+      );
+    }
+
+    setRestocking(false);
+  }
+
+  function openAdjustment(
+    productId = ''
+  ) {
+    setError('');
+    setAdjustmentProductId(
+      productId
+    );
+    setAdjustmentQuantity('');
+    setAdjustmentReason('');
+    setShowRestockForm(false);
+    setShowAdjustmentForm(true);
+  }
+
+  function closeAdjustment() {
+    setShowAdjustmentForm(false);
+    setAdjustmentProductId('');
+    setAdjustmentQuantity('');
+    setAdjustmentReason('');
+  }
+
+  async function adjustInventory(
+    e: FormEvent
+  ) {
+    e.preventDefault();
+
+    if (!ownerBusiness) {
+      return;
+    }
+
+    if (!selectedBranch) {
+      setError(
+        'Please select a branch.'
+      );
+      return;
+    }
+
+    if (!adjustmentProductId) {
+      setError(
+        'Please select a product.'
+      );
+      return;
+    }
+
+    const quantity =
+      Number(adjustmentQuantity);
+
+    if (
+      Number.isNaN(quantity) ||
+      quantity === 0
+    ) {
+      setError(
+        'Adjustment quantity cannot be zero.'
+      );
+      return;
+    }
+
+    const reason =
+      adjustmentReason.trim();
+
+    if (!reason) {
+      setError(
+        'Please provide a reason for the adjustment.'
+      );
+      return;
+    }
+
+    setAdjusting(true);
+    setError('');
+
+    const { error } =
+      await supabase.rpc(
+        'adjust_inventory',
+        {
+          target_business_id:
+            ownerBusiness.id,
+
+          target_product_id:
+            adjustmentProductId,
+
+          target_branch_id:
+            selectedBranch,
+
+          adjustment_quantity:
+            quantity,
+
+          adjustment_reason:
+            reason,
+        }
+      );
+
+    if (error) {
+      setError(error.message);
+    } else {
+      closeAdjustment();
+
+      await refreshInventory();
+
+      alert(
+        'Inventory adjusted successfully.'
+      );
+    }
+
+    setAdjusting(false);
+  }
+
+  /*
+   * ========================================================
+   * HELPERS
+   * ========================================================
+   */
+
   async function handleLogout() {
     await supabase.auth.signOut();
   }
 
-  function openBusiness(
-    business: Business
-  ) {
-    setSelectedBusiness(business);
-    setSelectedOwner('');
-    setError('');
-  }
-
-  function closeBusiness() {
-    setSelectedBusiness(null);
-    setSelectedOwner('');
-    setError('');
-  }
-
   const filteredProducts =
-    products.filter((product) => {
+    products.filter(
+      (product) => {
+        const search =
+          productSearch
+            .toLowerCase()
+            .trim();
+
+        if (!search) {
+          return true;
+        }
+
+        return (
+          product.name
+            .toLowerCase()
+            .includes(search) ||
+
+          (product.sku || '')
+            .toLowerCase()
+            .includes(search) ||
+
+          (product.barcode || '')
+            .toLowerCase()
+            .includes(search)
+        );
+      }
+    );
+
+  const filteredInventory =
+    useMemo(() => {
       const search =
-        productSearch
+        inventorySearch
           .toLowerCase()
           .trim();
 
       if (!search) {
-        return true;
+        return inventorySummary;
       }
 
-      return (
-        product.name
-          .toLowerCase()
-          .includes(search) ||
-        (product.sku || '')
-          .toLowerCase()
-          .includes(search) ||
-        (product.barcode || '')
-          .toLowerCase()
-          .includes(search)
+      return inventorySummary.filter(
+        (item) =>
+          item.product_name
+            .toLowerCase()
+            .includes(search) ||
+
+          (item.sku || '')
+            .toLowerCase()
+            .includes(search)
       );
-    });
+    }, [
+      inventorySummary,
+      inventorySearch,
+    ]);
+
+  const inventoryStats =
+    useMemo(() => {
+      const totalUnits =
+        inventorySummary.reduce(
+          (sum, item) =>
+            sum +
+            Number(
+              item.quantity || 0
+            ),
+          0
+        );
+
+      const inventoryValue =
+        inventorySummary.reduce(
+          (sum, item) =>
+            sum +
+            Number(
+              item.inventory_value ||
+                0
+            ),
+          0
+        );
+
+      const lowStock =
+        inventorySummary.filter(
+          (item) =>
+            item.status ===
+            'low_stock'
+        ).length;
+
+      const outOfStock =
+        inventorySummary.filter(
+          (item) =>
+            item.status ===
+            'out_of_stock'
+        ).length;
+
+      return {
+        totalUnits,
+        inventoryValue,
+        lowStock,
+        outOfStock,
+      };
+    }, [
+      inventorySummary,
+    ]);
 
   function getCategoryName(
     categoryId: string | null
@@ -854,7 +1496,8 @@ export default function App() {
     return (
       categories.find(
         (category) =>
-          category.id === categoryId
+          category.id ===
+          categoryId
       )?.name ||
       'Uncategorized'
     );
@@ -866,32 +1509,87 @@ export default function App() {
     return inventory
       .filter(
         (item) =>
-          item.product_id === productId
+          item.product_id ===
+          productId
       )
       .reduce(
         (sum, item) =>
           sum +
-          Number(item.quantity || 0),
+          Number(
+            item.quantity || 0
+          ),
         0
       );
   }
+
+  function formatGMD(
+    amount: number
+  ) {
+    return Number(
+      amount || 0
+    ).toLocaleString(
+      'en-GM',
+      {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }
+    );
+  }
+
+  function statusLabel(
+    status: string
+  ) {
+    if (
+      status ===
+      'out_of_stock'
+    ) {
+      return 'Out of Stock';
+    }
+
+    if (
+      status ===
+      'low_stock'
+    ) {
+      return 'Low Stock';
+    }
+
+    return 'In Stock';
+  }
+
+  /*
+   * ========================================================
+   * LOADING
+   * ========================================================
+   */
 
   if (loading) {
     return (
       <div className="auth-page">
         <div className="auth-card">
+
           <div className="brand">
             Jabang<span>Store</span>
           </div>
-          <p>Loading...</p>
+
+          <p>
+            Loading...
+          </p>
+
         </div>
       </div>
     );
   }
 
+  /*
+   * ========================================================
+   * LOGIN
+   * ========================================================
+   */
+
   if (!session) {
     return (
       <div className="auth-page">
+
         <div className="auth-card">
 
           <div className="brand">
@@ -914,17 +1612,18 @@ export default function App() {
           <form
             onSubmit={async (e) => {
               e.preventDefault();
+
               setError('');
 
               const emailInput =
-                e.currentTarget.elements
-                  .namedItem(
+                e.currentTarget
+                  .elements.namedItem(
                     'email'
                   ) as HTMLInputElement;
 
               const passwordInput =
-                e.currentTarget.elements
-                  .namedItem(
+                e.currentTarget
+                  .elements.namedItem(
                     'password'
                   ) as HTMLInputElement;
 
@@ -935,6 +1634,7 @@ export default function App() {
                 setError(
                   'Please enter your email and password.'
                 );
+
                 return;
               }
 
@@ -943,6 +1643,7 @@ export default function App() {
                   .signInWithPassword({
                     email:
                       emailInput.value.trim(),
+
                     password:
                       passwordInput.value,
                   });
@@ -1003,11 +1704,14 @@ export default function App() {
   }
 
   /*
-   * SUPER ADMIN HAS PRIORITY
+   * ========================================================
+   * SUPER ADMIN
+   * ========================================================
    */
 
   if (
-    platformRole === 'super_admin'
+    platformRole ===
+    'super_admin'
   ) {
 
     if (selectedBusiness) {
@@ -1039,7 +1743,9 @@ export default function App() {
 
             <button
               className="secondary-button"
-              onClick={closeBusiness}
+              onClick={
+                closeBusiness
+              }
             >
               ← Back to Businesses
             </button>
@@ -1049,11 +1755,16 @@ export default function App() {
               <div>
 
                 <span className="status">
-                  ● {selectedBusiness.status}
+                  ●{' '}
+                  {
+                    selectedBusiness.status
+                  }
                 </span>
 
                 <h1>
-                  {selectedBusiness.name}
+                  {
+                    selectedBusiness.name
+                  }
                 </h1>
 
                 <p>
@@ -1081,11 +1792,15 @@ export default function App() {
                 <div className="business-info">
 
                   <h3>
-                    {selectedBusiness.name}
+                    {
+                      selectedBusiness.name
+                    }
                   </h3>
 
                   <span className="business-status">
-                    {selectedBusiness.status}
+                    {
+                      selectedBusiness.status
+                    }
                   </span>
 
                   <p>
@@ -1106,16 +1821,17 @@ export default function App() {
                 </h2>
 
                 <p>
-                  Assign an existing JabangStore
-                  user as the owner of this
-                  business.
+                  Assign an existing
+                  JabangStore user as the
+                  owner of this business.
                 </p>
 
                 {loadingUsers ? (
                   <p>
                     Loading users...
                   </p>
-                ) : users.length === 0 ? (
+                ) : users.length ===
+                  0 ? (
                   <div className="empty-card">
 
                     <h3>
@@ -1137,7 +1853,9 @@ export default function App() {
                     </label>
 
                     <select
-                      value={selectedOwner}
+                      value={
+                        selectedOwner
+                      }
                       onChange={(e) =>
                         setSelectedOwner(
                           e.target.value
@@ -1152,8 +1870,12 @@ export default function App() {
                       {users.map(
                         (user) => (
                           <option
-                            key={user.id}
-                            value={user.id}
+                            key={
+                              user.id
+                            }
+                            value={
+                              user.id
+                            }
                           >
                             {user.email}
                           </option>
@@ -1245,6 +1967,7 @@ export default function App() {
                 setShowCreate(
                   !showCreate
                 );
+
                 setError('');
               }}
             >
@@ -1278,7 +2001,9 @@ export default function App() {
                 <input
                   type="text"
                   placeholder="e.g. Jabang Supermarket"
-                  value={businessName}
+                  value={
+                    businessName
+                  }
                   onChange={(e) =>
                     setBusinessName(
                       e.target.value
@@ -1298,8 +2023,14 @@ export default function App() {
                     type="button"
                     className="secondary-button"
                     onClick={() => {
-                      setShowCreate(false);
-                      setBusinessName('');
+                      setShowCreate(
+                        false
+                      );
+
+                      setBusinessName(
+                        ''
+                      );
+
                       setError('');
                     }}
                   >
@@ -1309,7 +2040,9 @@ export default function App() {
                   <button
                     type="submit"
                     className="primary-button"
-                    disabled={creating}
+                    disabled={
+                      creating
+                    }
                   >
                     {creating
                       ? 'Creating...'
@@ -1334,9 +2067,12 @@ export default function App() {
                 </h2>
 
                 <p>
-                  {businesses.length}{' '}
+                  {
+                    businesses.length
+                  }{' '}
                   business
-                  {businesses.length === 1
+                  {businesses.length ===
+                  1
                     ? ''
                     : 'es'}
                 </p>
@@ -1359,17 +2095,19 @@ export default function App() {
 
             </div>
 
-            {error && !showCreate && (
-              <div className="error">
-                {error}
-              </div>
-            )}
+            {error &&
+              !showCreate && (
+                <div className="error">
+                  {error}
+                </div>
+              )}
 
             {loadingBusinesses ? (
               <div className="empty-card">
                 Loading businesses...
               </div>
-            ) : businesses.length === 0 ? (
+            ) : businesses.length ===
+              0 ? (
               <div className="empty-card">
 
                 <div className="empty-icon">
@@ -1388,7 +2126,9 @@ export default function App() {
                 <button
                   className="primary-button"
                   onClick={() =>
-                    setShowCreate(true)
+                    setShowCreate(
+                      true
+                    )
                   }
                 >
                   + Create Business
@@ -1402,7 +2142,9 @@ export default function App() {
                   (business) => (
                     <article
                       className="business-card"
-                      key={business.id}
+                      key={
+                        business.id
+                      }
                     >
 
                       <div className="business-icon">
@@ -1412,11 +2154,15 @@ export default function App() {
                       <div className="business-info">
 
                         <h3>
-                          {business.name}
+                          {
+                            business.name
+                          }
                         </h3>
 
                         <span className="business-status">
-                          {business.status}
+                          {
+                            business.status
+                          }
                         </span>
 
                         <p>
@@ -1455,20 +2201,27 @@ export default function App() {
   }
 
   /*
-   * OWNER APPLICATION
+   * ========================================================
+   * OWNER LOADING
+   * ========================================================
    */
 
   if (ownerLoading) {
     return (
       <div className="auth-page">
+
         <div className="auth-card">
+
           <div className="brand">
             Jabang<span>Store</span>
           </div>
+
           <p>
             Loading your business...
           </p>
+
         </div>
+
       </div>
     );
   }
@@ -1476,6 +2229,7 @@ export default function App() {
   if (!ownerBusiness) {
     return (
       <div className="auth-page">
+
         <div className="auth-card">
 
           <div className="brand">
@@ -1505,15 +2259,21 @@ export default function App() {
           </button>
 
         </div>
+
       </div>
     );
   }
 
   /*
+   * ========================================================
    * PRODUCTS PAGE
+   * ========================================================
    */
 
-  if (ownerPage === 'products') {
+  if (
+    ownerPage ===
+    'products'
+  ) {
     return (
       <div className="dashboard-page">
 
@@ -1525,7 +2285,9 @@ export default function App() {
             </div>
 
             <small>
-              {ownerBusiness.name}
+              {
+                ownerBusiness.name
+              }
             </small>
           </div>
 
@@ -1578,6 +2340,7 @@ export default function App() {
                   setShowProductForm(
                     !showProductForm
                   );
+
                   setError('');
                 }}
               >
@@ -1617,7 +2380,9 @@ export default function App() {
                 </label>
 
                 <input
-                  value={productName}
+                  value={
+                    productName
+                  }
                   onChange={(e) =>
                     setProductName(
                       e.target.value
@@ -1631,7 +2396,9 @@ export default function App() {
                 </label>
 
                 <input
-                  value={productSku}
+                  value={
+                    productSku
+                  }
                   onChange={(e) =>
                     setProductSku(
                       e.target.value
@@ -1645,7 +2412,9 @@ export default function App() {
                 </label>
 
                 <input
-                  value={productBarcode}
+                  value={
+                    productBarcode
+                  }
                   onChange={(e) =>
                     setProductBarcode(
                       e.target.value
@@ -1659,7 +2428,9 @@ export default function App() {
                 </label>
 
                 <select
-                  value={productCategory}
+                  value={
+                    productCategory
+                  }
                   onChange={(e) =>
                     setProductCategory(
                       e.target.value
@@ -1674,10 +2445,16 @@ export default function App() {
                   {categories.map(
                     (category) => (
                       <option
-                        key={category.id}
-                        value={category.id}
+                        key={
+                          category.id
+                        }
+                        value={
+                          category.id
+                        }
                       >
-                        {category.name}
+                        {
+                          category.name
+                        }
                       </option>
                     )
                   )}
@@ -1766,6 +2543,7 @@ export default function App() {
                       setShowProductForm(
                         false
                       );
+
                       setError('');
                     }}
                   >
@@ -1796,17 +2574,22 @@ export default function App() {
             <div className="section-title">
 
               <div>
+
                 <h2>
                   Product Catalog
                 </h2>
 
                 <p>
-                  {products.length}{' '}
+                  {
+                    products.length
+                  }{' '}
                   product
-                  {products.length === 1
+                  {products.length ===
+                  1
                     ? ''
                     : 's'}
                 </p>
+
               </div>
 
               <button
@@ -1825,7 +2608,9 @@ export default function App() {
             <input
               className="product-search"
               placeholder="Search by product name, SKU or barcode..."
-              value={productSearch}
+              value={
+                productSearch
+              }
               onChange={(e) =>
                 setProductSearch(
                   e.target.value
@@ -1837,7 +2622,8 @@ export default function App() {
               <div className="empty-card">
                 Loading products...
               </div>
-            ) : filteredProducts.length === 0 ? (
+            ) : filteredProducts.length ===
+              0 ? (
               <div className="empty-card">
 
                 <div className="empty-icon">
@@ -1860,7 +2646,9 @@ export default function App() {
                 <table className="data-table">
 
                   <thead>
+
                     <tr>
+
                       <th>
                         Product
                       </th>
@@ -1884,7 +2672,9 @@ export default function App() {
                       <th>
                         Status
                       </th>
+
                     </tr>
+
                   </thead>
 
                   <tbody>
@@ -1898,8 +2688,11 @@ export default function App() {
                         >
 
                           <td>
+
                             <strong>
-                              {product.name}
+                              {
+                                product.name
+                              }
                             </strong>
 
                             {product.barcode && (
@@ -1909,9 +2702,12 @@ export default function App() {
                                     'block',
                                 }}
                               >
-                                {product.barcode}
+                                {
+                                  product.barcode
+                                }
                               </small>
                             )}
+
                           </td>
 
                           <td>
@@ -1923,30 +2719,40 @@ export default function App() {
                           </td>
 
                           <td>
-                            {product.sku ||
-                              '—'}
+                            {
+                              product.sku ||
+                              '—'
+                            }
                           </td>
 
                           <td>
                             GMD{' '}
-                            {Number(
-                              product.selling_price
-                            ).toFixed(2)}
+                            {formatGMD(
+                              Number(
+                                product.selling_price
+                              )
+                            )}
                           </td>
 
                           <td>
                             GMD{' '}
-                            {Number(
-                              product.cost_price
-                            ).toFixed(2)}
+                            {formatGMD(
+                              Number(
+                                product.cost_price
+                              )
+                            )}
                           </td>
 
                           <td>
+
                             <span className="business-status">
-                              {product.is_active
-                                ? 'Active'
-                                : 'Inactive'}
+                              {
+                                product.is_active
+                                  ? 'Active'
+                                  : 'Inactive'
+                              }
                             </span>
+
                           </td>
 
                         </tr>
@@ -1967,6 +2773,7 @@ export default function App() {
             <div className="section-title">
 
               <div>
+
                 <h2>
                   Categories
                 </h2>
@@ -1974,6 +2781,7 @@ export default function App() {
                 <p>
                   Organize your products.
                 </p>
+
               </div>
 
               <button
@@ -1982,6 +2790,7 @@ export default function App() {
                   setShowCategoryForm(
                     !showCategoryForm
                   );
+
                   setError('');
                 }}
               >
@@ -2008,7 +2817,9 @@ export default function App() {
                   </label>
 
                   <input
-                    value={categoryName}
+                    value={
+                      categoryName
+                    }
                     onChange={(e) =>
                       setCategoryName(
                         e.target.value
@@ -2071,8 +2882,10 @@ export default function App() {
               <div className="empty-card">
                 Loading categories...
               </div>
-            ) : categories.length === 0 ? (
+            ) : categories.length ===
+              0 ? (
               <div className="empty-card">
+
                 <h3>
                   No categories yet
                 </h3>
@@ -2082,6 +2895,7 @@ export default function App() {
                   Beverages, Food, Electronics,
                   Clothing, etc.
                 </p>
+
               </div>
             ) : (
               <div className="business-grid">
@@ -2090,7 +2904,9 @@ export default function App() {
                   (category) => (
                     <article
                       className="business-card"
-                      key={category.id}
+                      key={
+                        category.id
+                      }
                     >
 
                       <div className="business-icon">
@@ -2100,12 +2916,16 @@ export default function App() {
                       <div className="business-info">
 
                         <h3>
-                          {category.name}
+                          {
+                            category.name
+                          }
                         </h3>
 
                         <p>
-                          {category.description ||
-                            'No description'}
+                          {
+                            category.description ||
+                            'No description'
+                          }
                         </p>
 
                       </div>
@@ -2126,10 +2946,15 @@ export default function App() {
   }
 
   /*
-   * INVENTORY PAGE
+   * ========================================================
+   * REAL INVENTORY PAGE
+   * ========================================================
    */
 
-  if (ownerPage === 'inventory') {
+  if (
+    ownerPage ===
+    'inventory'
+  ) {
     return (
       <div className="dashboard-page">
 
@@ -2141,7 +2966,9 @@ export default function App() {
             </div>
 
             <small>
-              {ownerBusiness.name}
+              {
+                ownerBusiness.name
+              }
             </small>
           </div>
 
@@ -2161,7 +2988,7 @@ export default function App() {
             <div>
 
               <span className="status">
-                ● Inventory
+                ● Inventory Management
               </span>
 
               <h1>
@@ -2169,22 +2996,56 @@ export default function App() {
               </h1>
 
               <p>
-                Monitor stock levels across
-                your products.
+                Monitor, restock and adjust
+                your business stock.
               </p>
 
             </div>
 
-            <button
-              className="secondary-button"
-              onClick={() =>
-                openOwnerPage(
-                  'dashboard'
-                )
-              }
-            >
-              ← Dashboard
-            </button>
+            <div className="form-actions">
+
+              <button
+                className="secondary-button"
+                onClick={() =>
+                  openOwnerPage(
+                    'dashboard'
+                  )
+                }
+              >
+                ← Dashboard
+              </button>
+
+              <button
+                className="primary-button"
+                onClick={() =>
+                  openRestock()
+                }
+                disabled={
+                  branches.length ===
+                  0 ||
+                  inventorySummary.length ===
+                  0
+                }
+              >
+                + Restock
+              </button>
+
+              <button
+                className="secondary-button"
+                onClick={() =>
+                  openAdjustment()
+                }
+                disabled={
+                  branches.length ===
+                  0 ||
+                  inventorySummary.length ===
+                  0
+                }
+              >
+                Adjust Stock
+              </button>
+
+            </div>
 
           </section>
 
@@ -2194,39 +3055,587 @@ export default function App() {
             </div>
           )}
 
+          {branches.length ===
+            0 && (
+            <div className="error">
+              No active branch is available.
+              Create a branch before adding
+              inventory.
+            </div>
+          )}
+
+          {showRestockForm && (
+            <section className="create-business-card">
+
+              <h2>
+                Restock Inventory
+              </h2>
+
+              <p>
+                Add stock to the selected
+                branch.
+              </p>
+
+              <form
+                onSubmit={
+                  restockProduct
+                }
+              >
+
+                <label>
+                  Branch *
+                </label>
+
+                <select
+                  value={
+                    selectedBranch
+                  }
+                  onChange={(e) =>
+                    setSelectedBranch(
+                      e.target.value
+                    )
+                  }
+                >
+
+                  <option value="">
+                    Select branch
+                  </option>
+
+                  {branches.map(
+                    (branch) => (
+                      <option
+                        key={
+                          branch.id
+                        }
+                        value={
+                          branch.id
+                        }
+                      >
+                        {
+                          branch.name
+                        }
+                      </option>
+                    )
+                  )}
+
+                </select>
+
+                <label>
+                  Product *
+                </label>
+
+                <select
+                  value={
+                    restockProductId
+                  }
+                  onChange={(e) =>
+                    setRestockProductId(
+                      e.target.value
+                    )
+                  }
+                >
+
+                  <option value="">
+                    Select product
+                  </option>
+
+                  {inventorySummary.map(
+                    (item) => (
+                      <option
+                        key={
+                          item.product_id
+                        }
+                        value={
+                          item.product_id
+                        }
+                      >
+                        {
+                          item.product_name
+                        }
+                        {' — '}
+                        Stock:{' '}
+                        {
+                          item.quantity
+                        }
+                      </option>
+                    )
+                  )}
+
+                </select>
+
+                <label>
+                  Quantity to add *
+                </label>
+
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={
+                    restockQuantity
+                  }
+                  onChange={(e) =>
+                    setRestockQuantity(
+                      e.target.value
+                    )
+                  }
+                  placeholder="e.g. 20"
+                />
+
+                <label>
+                  Unit cost (GMD)
+                </label>
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={
+                    restockUnitCost
+                  }
+                  onChange={(e) =>
+                    setRestockUnitCost(
+                      e.target.value
+                    )
+                  }
+                  placeholder="Optional"
+                />
+
+                <div className="form-actions">
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={
+                      closeRestock
+                    }
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={
+                      restocking
+                    }
+                  >
+                    {restocking
+                      ? 'Restocking...'
+                      : 'Confirm Restock'}
+                  </button>
+
+                </div>
+
+              </form>
+
+            </section>
+          )}
+
+          {showAdjustmentForm && (
+            <section className="create-business-card">
+
+              <h2>
+                Adjust Stock
+              </h2>
+
+              <p>
+                Use a positive number to add
+                stock or a negative number to
+                remove stock.
+              </p>
+
+              <form
+                onSubmit={
+                  adjustInventory
+                }
+              >
+
+                <label>
+                  Branch *
+                </label>
+
+                <select
+                  value={
+                    selectedBranch
+                  }
+                  onChange={(e) =>
+                    setSelectedBranch(
+                      e.target.value
+                    )
+                  }
+                >
+
+                  <option value="">
+                    Select branch
+                  </option>
+
+                  {branches.map(
+                    (branch) => (
+                      <option
+                        key={
+                          branch.id
+                        }
+                        value={
+                          branch.id
+                        }
+                      >
+                        {
+                          branch.name
+                        }
+                      </option>
+                    )
+                  )}
+
+                </select>
+
+                <label>
+                  Product *
+                </label>
+
+                <select
+                  value={
+                    adjustmentProductId
+                  }
+                  onChange={(e) =>
+                    setAdjustmentProductId(
+                      e.target.value
+                    )
+                  }
+                >
+
+                  <option value="">
+                    Select product
+                  </option>
+
+                  {inventorySummary.map(
+                    (item) => (
+                      <option
+                        key={
+                          item.product_id
+                        }
+                        value={
+                          item.product_id
+                        }
+                      >
+                        {
+                          item.product_name
+                        }
+                        {' — '}
+                        Stock:{' '}
+                        {
+                          item.quantity
+                        }
+                      </option>
+                    )
+                  )}
+
+                </select>
+
+                <label>
+                  Adjustment quantity *
+                </label>
+
+                <input
+                  type="number"
+                  step="0.01"
+                  value={
+                    adjustmentQuantity
+                  }
+                  onChange={(e) =>
+                    setAdjustmentQuantity(
+                      e.target.value
+                    )
+                  }
+                  placeholder="e.g. 5 or -2"
+                />
+
+                <label>
+                  Reason *
+                </label>
+
+                <textarea
+                  value={
+                    adjustmentReason
+                  }
+                  onChange={(e) =>
+                    setAdjustmentReason(
+                      e.target.value
+                    )
+                  }
+                  placeholder="e.g. Physical stock count correction"
+                  rows={4}
+                />
+
+                <div className="form-actions">
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={
+                      closeAdjustment
+                    }
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={
+                      adjusting
+                    }
+                  >
+                    {adjusting
+                      ? 'Adjusting...'
+                      : 'Confirm Adjustment'}
+                  </button>
+
+                </div>
+
+              </form>
+
+            </section>
+          )}
+
           <section className="business-section">
 
             <div className="section-title">
 
               <div>
+
                 <h2>
-                  Stock Overview
+                  Inventory Overview
                 </h2>
 
                 <p>
-                  {branches.length}{' '}
-                  branch
-                  {branches.length === 1
-                    ? ''
-                    : 'es'}{' '}
-                  connected
+                  Live stock information from
+                  Supabase.
                 </p>
+
               </div>
 
               <button
                 className="refresh-button"
-                onClick={() =>
-                  loadOwnerDashboard(
-                    ownerBusiness.id
-                  )
+                onClick={
+                  refreshInventory
+                }
+                disabled={
+                  loadingInventory
                 }
               >
-                Refresh
+                {loadingInventory
+                  ? 'Refreshing...'
+                  : 'Refresh'}
               </button>
 
             </div>
 
-            {products.length === 0 ? (
+            <div className="business-grid">
+
+              <article className="business-card">
+
+                <div className="business-icon">
+                  📦
+                </div>
+
+                <div className="business-info">
+
+                  <h3>
+                    Products
+                  </h3>
+
+                  <p>
+                    {
+                      inventorySummary.length
+                    }
+                  </p>
+
+                </div>
+
+              </article>
+
+              <article className="business-card">
+
+                <div className="business-icon">
+                  🔢
+                </div>
+
+                <div className="business-info">
+
+                  <h3>
+                    Total Units
+                  </h3>
+
+                  <p>
+                    {
+                      inventoryStats.totalUnits
+                    }
+                  </p>
+
+                </div>
+
+              </article>
+
+              <article className="business-card">
+
+                <div className="business-icon">
+                  ⚠️
+                </div>
+
+                <div className="business-info">
+
+                  <h3>
+                    Low Stock
+                  </h3>
+
+                  <p>
+                    {
+                      inventoryStats.lowStock
+                    }
+                  </p>
+
+                </div>
+
+              </article>
+
+              <article className="business-card">
+
+                <div className="business-icon">
+                  🚫
+                </div>
+
+                <div className="business-info">
+
+                  <h3>
+                    Out of Stock
+                  </h3>
+
+                  <p>
+                    {
+                      inventoryStats.outOfStock
+                    }
+                  </p>
+
+                </div>
+
+              </article>
+
+              <article className="business-card">
+
+                <div className="business-icon">
+                  💰
+                </div>
+
+                <div className="business-info">
+
+                  <h3>
+                    Inventory Value
+                  </h3>
+
+                  <p>
+                    GMD{' '}
+                    {
+                      formatGMD(
+                        inventoryStats.inventoryValue
+                      )
+                    }
+                  </p>
+
+                </div>
+
+              </article>
+
+            </div>
+
+          </section>
+
+          <section className="business-section">
+
+            <div className="section-title">
+
+              <div>
+
+                <h2>
+                  Stock Levels
+                </h2>
+
+                <p>
+                  Search and manage your
+                  inventory.
+                </p>
+
+              </div>
+
+            </div>
+
+            <div
+              style={{
+                display:
+                  'grid',
+                gridTemplateColumns:
+                  'minmax(0, 1fr) minmax(180px, 260px)',
+                gap: '12px',
+                marginBottom:
+                  '20px',
+              }}
+            >
+
+              <input
+                className="product-search"
+                placeholder="Search product or SKU..."
+                value={
+                  inventorySearch
+                }
+                onChange={(e) =>
+                  setInventorySearch(
+                    e.target.value
+                  )
+                }
+              />
+
+              <select
+                value={
+                  selectedBranch
+                }
+                onChange={(e) =>
+                  setSelectedBranch(
+                    e.target.value
+                  )
+                }
+              >
+
+                <option value="">
+                  All / Select Branch
+                </option>
+
+                {branches.map(
+                  (branch) => (
+                    <option
+                      key={
+                        branch.id
+                      }
+                      value={
+                        branch.id
+                      }
+                    >
+                      {
+                        branch.name
+                      }
+                    </option>
+                  )
+                )}
+
+              </select>
+
+            </div>
+
+            {loadingInventory ? (
+              <div className="empty-card">
+                Loading inventory...
+              </div>
+            ) : filteredInventory.length ===
+              0 ? (
               <div className="empty-card">
 
                 <div className="empty-icon">
@@ -2234,24 +3643,14 @@ export default function App() {
                 </div>
 
                 <h3>
-                  No products yet
+                  No inventory records
                 </h3>
 
                 <p>
-                  Create products before
-                  managing inventory.
+                  Create products and use
+                  Restock to add your first
+                  stock.
                 </p>
-
-                <button
-                  className="primary-button"
-                  onClick={() =>
-                    openOwnerPage(
-                      'products'
-                    )
-                  }
-                >
-                  Go to Products
-                </button>
 
               </div>
             ) : (
@@ -2262,99 +3661,291 @@ export default function App() {
                   <thead>
 
                     <tr>
+
                       <th>
                         Product
                       </th>
 
                       <th>
-                        Category
+                        SKU
                       </th>
 
                       <th>
-                        Current Stock
+                        Stock
                       </th>
 
                       <th>
-                        Low Stock At
+                        Alert At
+                      </th>
+
+                      <th>
+                        Inventory Value
                       </th>
 
                       <th>
                         Status
                       </th>
+
+                      <th>
+                        Actions
+                      </th>
+
                     </tr>
 
                   </thead>
 
                   <tbody>
 
-                    {products.map(
-                      (product) => {
+                    {filteredInventory.map(
+                      (item) => (
+                        <tr
+                          key={
+                            item.product_id
+                          }
+                        >
 
-                        const stock =
-                          getProductStock(
-                            product.id
-                          );
-
-                        const low =
-                          stock <=
-                          Number(
-                            product.low_stock_threshold
-                          );
-
-                        return (
-                          <tr
-                            key={
-                              product.id
-                            }
-                          >
-
-                            <td>
-                              <strong>
-                                {product.name}
-                              </strong>
-                            </td>
-
-                            <td>
+                          <td>
+                            <strong>
                               {
-                                getCategoryName(
-                                  product.category_id
+                                item.product_name
+                              }
+                            </strong>
+                          </td>
+
+                          <td>
+                            {
+                              item.sku ||
+                              '—'
+                            }
+                          </td>
+
+                          <td>
+                            <strong>
+                              {
+                                item.quantity
+                              }
+                            </strong>
+                          </td>
+
+                          <td>
+                            {
+                              item.low_stock_threshold
+                            }
+                          </td>
+
+                          <td>
+                            GMD{' '}
+                            {
+                              formatGMD(
+                                Number(
+                                  item.inventory_value
+                                )
+                              )
+                            }
+                          </td>
+
+                          <td>
+
+                            <span
+                              className="business-status"
+                              style={{
+                                borderColor:
+                                  item.status ===
+                                  'out_of_stock'
+                                    ? '#c0392b'
+                                    : item.status ===
+                                      'low_stock'
+                                    ? '#d4af37'
+                                    : undefined,
+                              }}
+                            >
+                              {
+                                statusLabel(
+                                  item.status
                                 )
                               }
-                            </td>
+                            </span>
 
-                            <td>
-                              <strong>
-                                {stock}
-                              </strong>
-                            </td>
+                          </td>
 
-                            <td>
-                              {
-                                product.low_stock_threshold
-                              }
-                            </td>
+                          <td>
 
-                            <td>
-                              <span
-                                className="business-status"
-                                style={
-                                  low
-                                    ? {
-                                        borderColor:
-                                          '#c0392b',
-                                      }
-                                    : undefined
+                            <div
+                              style={{
+                                display:
+                                  'flex',
+                                gap:
+                                  '8px',
+                                flexWrap:
+                                  'wrap',
+                              }}
+                            >
+
+                              <button
+                                className="primary-button"
+                                onClick={() =>
+                                  openRestock(
+                                    item.product_id
+                                  )
                                 }
                               >
-                                {low
-                                  ? 'Low Stock'
-                                  : 'In Stock'}
-                              </span>
-                            </td>
+                                Restock
+                              </button>
 
-                          </tr>
-                        );
-                      }
+                              <button
+                                className="secondary-button"
+                                onClick={() =>
+                                  openAdjustment(
+                                    item.product_id
+                                  )
+                                }
+                              >
+                                Adjust
+                              </button>
+
+                            </div>
+
+                          </td>
+
+                        </tr>
+                      )
+                    )}
+
+                  </tbody>
+
+                </table>
+
+              </div>
+            )}
+
+          </section>
+
+          <section className="business-section">
+
+            <div className="section-title">
+
+              <div>
+
+                <h2>
+                  Inventory Movement History
+                </h2>
+
+                <p>
+                  Every manual stock movement
+                  recorded by JabangStore.
+                </p>
+
+              </div>
+
+            </div>
+
+            {loadingMovements ? (
+              <div className="empty-card">
+                Loading movement history...
+              </div>
+            ) : inventoryMovements.length ===
+              0 ? (
+              <div className="empty-card">
+
+                <div className="empty-icon">
+                  📋
+                </div>
+
+                <h3>
+                  No movements yet
+                </h3>
+
+                <p>
+                  Restocking or adjusting
+                  inventory will create a
+                  movement record here.
+                </p>
+
+              </div>
+            ) : (
+              <div className="table-wrapper">
+
+                <table className="data-table">
+
+                  <thead>
+
+                    <tr>
+
+                      <th>
+                        Date
+                      </th>
+
+                      <th>
+                        Product
+                      </th>
+
+                      <th>
+                        Movement
+                      </th>
+
+                      <th>
+                        Quantity
+                      </th>
+
+                      <th>
+                        Reference
+                      </th>
+
+                    </tr>
+
+                  </thead>
+
+                  <tbody>
+
+                    {inventoryMovements.map(
+                      (movement) => (
+                        <tr
+                          key={
+                            movement.id
+                          }
+                        >
+
+                          <td>
+                            {new Date(
+                              movement.created_at
+                            ).toLocaleString()}
+                          </td>
+
+                          <td>
+                            <strong>
+                              {
+                                movement.product_name
+                              }
+                            </strong>
+                          </td>
+
+                          <td>
+                            {
+                              movement.movement_type
+                            }
+                          </td>
+
+                          <td>
+                            <strong>
+                              {movement.quantity >
+                              0
+                                ? '+'
+                                : ''}
+                              {
+                                movement.quantity
+                              }
+                            </strong>
+                          </td>
+
+                          <td>
+                            {
+                              movement.reference_type ||
+                              '—'
+                            }
+                          </td>
+
+                        </tr>
+                      )
                     )}
 
                   </tbody>
@@ -2373,20 +3964,29 @@ export default function App() {
   }
 
   /*
+   * ========================================================
    * OTHER OWNER MODULES
+   * ========================================================
    */
 
   if (
     ownerPage === 'pos' ||
-    ownerPage === 'customers' ||
-    ownerPage === 'reports' ||
-    ownerPage === 'settings'
+    ownerPage ===
+      'customers' ||
+    ownerPage ===
+      'reports' ||
+    ownerPage ===
+      'settings'
   ) {
+
     const moduleNames = {
       pos: 'POS',
-      customers: 'Customers',
-      reports: 'Reports',
-      settings: 'Settings',
+      customers:
+        'Customers',
+      reports:
+        'Reports',
+      settings:
+        'Settings',
     };
 
     return (
@@ -2395,18 +3995,24 @@ export default function App() {
         <header className="topbar">
 
           <div>
+
             <div className="brand">
               Jabang<span>Store</span>
             </div>
 
             <small>
-              {ownerBusiness.name}
+              {
+                ownerBusiness.name
+              }
             </small>
+
           </div>
 
           <button
             className="logout-button"
-            onClick={handleLogout}
+            onClick={
+              handleLogout
+            }
           >
             Sign out
           </button>
@@ -2433,7 +4039,11 @@ export default function App() {
             </div>
 
             <h1>
-              {moduleNames[ownerPage]}
+              {
+                moduleNames[
+                  ownerPage
+                ]
+              }
             </h1>
 
             <p>
@@ -2452,7 +4062,9 @@ export default function App() {
   }
 
   /*
+   * ========================================================
    * OWNER DASHBOARD
+   * ========================================================
    */
 
   return (
@@ -2461,18 +4073,24 @@ export default function App() {
       <header className="topbar">
 
         <div>
+
           <div className="brand">
             Jabang<span>Store</span>
           </div>
 
           <small>
-            {ownerBusiness.name}
+            {
+              ownerBusiness.name
+            }
           </small>
+
         </div>
 
         <button
           className="logout-button"
-          onClick={handleLogout}
+          onClick={
+            handleLogout
+          }
         >
           Sign out
         </button>
@@ -2495,7 +4113,9 @@ export default function App() {
 
             <p>
               Manage and monitor{' '}
-              {ownerBusiness.name}.
+              {
+                ownerBusiness.name
+              }.
             </p>
 
           </div>
@@ -2518,11 +4138,13 @@ export default function App() {
               )
             }
           >
+
             <div className="business-icon">
               📊
             </div>
 
             <div className="business-info">
+
               <h3>
                 Dashboard
               </h3>
@@ -2530,7 +4152,9 @@ export default function App() {
               <p>
                 Business performance.
               </p>
+
             </div>
+
           </button>
 
           <button
@@ -2541,11 +4165,13 @@ export default function App() {
               )
             }
           >
+
             <div className="business-icon">
               📦
             </div>
 
             <div className="business-info">
+
               <h3>
                 Products
               </h3>
@@ -2553,7 +4179,9 @@ export default function App() {
               <p>
                 Products and categories.
               </p>
+
             </div>
+
           </button>
 
           <button
@@ -2564,11 +4192,13 @@ export default function App() {
               )
             }
           >
+
             <div className="business-icon">
               📋
             </div>
 
             <div className="business-info">
+
               <h3>
                 Inventory
               </h3>
@@ -2576,7 +4206,9 @@ export default function App() {
               <p>
                 Stock management.
               </p>
+
             </div>
+
           </button>
 
           <button
@@ -2587,11 +4219,13 @@ export default function App() {
               )
             }
           >
+
             <div className="business-icon">
               🛒
             </div>
 
             <div className="business-info">
+
               <h3>
                 POS
               </h3>
@@ -2599,7 +4233,9 @@ export default function App() {
               <p>
                 Sales and checkout.
               </p>
+
             </div>
+
           </button>
 
           <button
@@ -2610,11 +4246,13 @@ export default function App() {
               )
             }
           >
+
             <div className="business-icon">
               👥
             </div>
 
             <div className="business-info">
+
               <h3>
                 Customers
               </h3>
@@ -2622,7 +4260,9 @@ export default function App() {
               <p>
                 Customer management.
               </p>
+
             </div>
+
           </button>
 
           <button
@@ -2633,11 +4273,13 @@ export default function App() {
               )
             }
           >
+
             <div className="business-icon">
               📈
             </div>
 
             <div className="business-info">
+
               <h3>
                 Reports
               </h3>
@@ -2645,7 +4287,9 @@ export default function App() {
               <p>
                 Business reports.
               </p>
+
             </div>
+
           </button>
 
           <button
@@ -2656,11 +4300,13 @@ export default function App() {
               )
             }
           >
+
             <div className="business-icon">
               ⚙️
             </div>
 
             <div className="business-info">
+
               <h3>
                 Settings
               </h3>
@@ -2668,7 +4314,9 @@ export default function App() {
               <p>
                 Business settings.
               </p>
+
             </div>
+
           </button>
 
         </section>
@@ -2676,7 +4324,9 @@ export default function App() {
         <section className="business-section">
 
           <div className="section-title">
+
             <div>
+
               <h2>
                 Business Overview
               </h2>
@@ -2685,92 +4335,124 @@ export default function App() {
                 Live information from
                 Supabase.
               </p>
+
             </div>
+
           </div>
 
           <div className="business-grid">
 
             <article className="business-card">
+
               <div className="business-icon">
                 💰
               </div>
 
               <div className="business-info">
+
                 <h3>
                   Today's Sales
                 </h3>
 
                 <p>
                   GMD{' '}
-                  {dashboardStats.todaySales.toFixed(
-                    2
-                  )}
+                  {
+                    formatGMD(
+                      dashboardStats.todaySales
+                    )
+                  }
                 </p>
+
               </div>
+
             </article>
 
             <article className="business-card">
+
               <div className="business-icon">
                 🧾
               </div>
 
               <div className="business-info">
+
                 <h3>
                   Total Sales
                 </h3>
 
                 <p>
-                  {dashboardStats.sales}
+                  {
+                    dashboardStats.sales
+                  }
                 </p>
+
               </div>
+
             </article>
 
             <article className="business-card">
+
               <div className="business-icon">
                 📦
               </div>
 
               <div className="business-info">
+
                 <h3>
                   Products
                 </h3>
 
                 <p>
-                  {dashboardStats.products}
+                  {
+                    dashboardStats.products
+                  }
                 </p>
+
               </div>
+
             </article>
 
             <article className="business-card">
+
               <div className="business-icon">
                 👥
               </div>
 
               <div className="business-info">
+
                 <h3>
                   Customers
                 </h3>
 
                 <p>
-                  {dashboardStats.customers}
+                  {
+                    dashboardStats.customers
+                  }
                 </p>
+
               </div>
+
             </article>
 
             <article className="business-card">
+
               <div className="business-icon">
                 ⚠️
               </div>
 
               <div className="business-info">
+
                 <h3>
                   Low Stock
                 </h3>
 
                 <p>
-                  {dashboardStats.lowStock}
+                  {
+                    dashboardStats.lowStock
+                  }
                 </p>
+
               </div>
+
             </article>
 
           </div>
@@ -2780,7 +4462,9 @@ export default function App() {
         <section className="business-section">
 
           <div className="section-title">
+
             <div>
+
               <h2>
                 Recent Sales
               </h2>
@@ -2788,11 +4472,15 @@ export default function App() {
               <p>
                 Latest transactions.
               </p>
+
             </div>
+
           </div>
 
-          {recentSales.length === 0 ? (
+          {recentSales.length ===
+          0 ? (
             <div className="empty-card">
+
               <h3>
                 No sales yet
               </h3>
@@ -2801,6 +4489,7 @@ export default function App() {
                 Sales will appear here after
                 the POS module is connected.
               </p>
+
             </div>
           ) : (
             <div className="table-wrapper">
@@ -2808,7 +4497,9 @@ export default function App() {
               <table className="data-table">
 
                 <thead>
+
                   <tr>
+
                     <th>
                       Sale
                     </th>
@@ -2820,7 +4511,9 @@ export default function App() {
                     <th>
                       Date
                     </th>
+
                   </tr>
+
                 </thead>
 
                 <tbody>
@@ -2828,21 +4521,30 @@ export default function App() {
                   {recentSales.map(
                     (sale) => (
                       <tr
-                        key={sale.id}
+                        key={
+                          sale.id
+                        }
                       >
 
                         <td>
-                          #{sale.id.slice(
-                            0,
-                            8
-                          )}
+                          #
+                          {
+                            sale.id.slice(
+                              0,
+                              8
+                            )
+                          }
                         </td>
 
                         <td>
                           GMD{' '}
-                          {Number(
-                            sale.total
-                          ).toFixed(2)}
+                          {
+                            formatGMD(
+                              Number(
+                                sale.total
+                              )
+                            )
+                          }
                         </td>
 
                         <td>
@@ -2867,7 +4569,9 @@ export default function App() {
         <section className="business-section">
 
           <div className="section-title">
+
             <div>
+
               <h2>
                 Low Stock Products
               </h2>
@@ -2875,10 +4579,13 @@ export default function App() {
               <p>
                 Products that need attention.
               </p>
+
             </div>
+
           </div>
 
-          {lowStockProducts.length === 0 ? (
+          {lowStockProducts.length ===
+          0 ? (
             <div className="empty-card">
 
               <div className="empty-icon">
@@ -2902,7 +4609,9 @@ export default function App() {
                 (product) => (
                   <article
                     className="business-card"
-                    key={product.id}
+                    key={
+                      product.id
+                    }
                   >
 
                     <div className="business-icon">
@@ -2912,14 +4621,18 @@ export default function App() {
                     <div className="business-info">
 
                       <h3>
-                        {product.name}
+                        {
+                          product.name
+                        }
                       </h3>
 
                       <p>
                         Stock:{' '}
-                        {getProductStock(
-                          product.id
-                        )}
+                        {
+                          getProductStock(
+                            product.id
+                          )
+                        }
                       </p>
 
                       <p>
