@@ -1,2 +1,568 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
-*{box-sizing:border-box}body{margin:0;font-family:Poppins,system-ui,sans-serif;background:#f5f7f5;color:#17342b}button,input{font:inherit}header{height:76px;background:#0B3D2E;color:#fff;padding:0 5%;display:flex;align-items:center;justify-content:space-between}.brand{font-size:25px;font-weight:700}.brand span{color:#D4AF37}header small{font-size:10px;opacity:.7}main{width:min(1400px,90%);margin:auto;padding:42px 0}.hero{display:flex;justify-content:space-between;gap:24px;margin-bottom:28px}.hero p{font-size:11px;font-weight:700;letter-spacing:1.5px;color:#0B3D2E}.hero h1{font-size:clamp(30px,4vw,50px);line-height:1.1;margin:6px 0 10px;color:#0B3D2E}.hero span{color:#6d7973}.stat,.panel{background:#fff;border:1px solid #e3e8e4;border-radius:18px;box-shadow:0 8px 30px #0b3d2e08}.stat{min-width:220px;padding:20px;display:flex;flex-direction:column;justify-content:center}.stat small{color:#78847e}.stat b{font-size:26px;color:#0B3D2E;margin-top:5px}.grid{display:grid;grid-template-columns:1.55fr .8fr;gap:22px}.heading{padding:20px 22px;border-bottom:1px solid #edf0ed;display:flex;align-items:center;justify-content:space-between;gap:15px}.heading h2{margin:0;font-size:17px}.heading small{display:block;color:#87918c;font-size:10px}.heading input{width:260px;border:1px solid #dce3de;border-radius:10px;padding:10px;outline:0}.products{padding:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.product{background:#fff;border:1px solid #e4e9e5;border-radius:14px;padding:16px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:5px}.product:hover{border-color:#D4AF37;transform:translateY(-2px)}.product i{font-style:normal;width:42px;height:42px;border-radius:10px;background:#edf4f0;display:grid;place-items:center;color:#0B3D2E;font-weight:700}.product strong{font-size:12px}.product span{font-size:12px;color:#0B3D2E;font-weight:600}.product small{font-size:10px;color:#89928d}.cart{min-height:500px;display:flex;flex-direction:column}.clear{border:0;background:none;color:#9b6e00;font-size:11px;cursor:pointer}.items{padding:8px 22px;flex:1}.row{padding:14px 0;border-bottom:1px solid #edf0ed;display:flex;justify-content:space-between;align-items:center;gap:10px}.row>div:first-child{display:flex;flex-direction:column}.row strong{font-size:12px}.row small{font-size:10px;color:#89928d}.qty{display:flex;align-items:center;gap:8px}.qty button{width:25px;height:25px;border:1px solid #dce3de;background:#fff;border-radius:7px;cursor:pointer}.empty{min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#64736d}.empty b{font-size:13px}.checkout{padding:20px 22px;border-top:1px solid #edf0ed}.checkout>div{display:flex;justify-content:space-between;margin-bottom:15px}.checkout span{font-size:12px;color:#68766f}.checkout b{font-size:20px;color:#0B3D2E}.checkout>button{width:100%;border:0;border-radius:10px;padding:12px;background:#0B3D2E;color:#fff;font-weight:600}.checkout>button:disabled{opacity:.4}@media(max-width:900px){.grid{grid-template-columns:1fr}.hero{flex-direction:column}.stat{min-width:0}}@media(max-width:600px){main{width:94%}.products{grid-template-columns:repeat(2,1fr);padding:14px}.heading{align-items:flex-start;flex-direction:column}.heading input{width:100%}}
+
+/* =========================================================
+   JABANGSTORE — GLOBAL STYLES
+   Brand: Deep Green #0B3D2E / Gold #D4AF37 / White
+   Font: Poppins
+   ========================================================= */
+
+:root {
+  --green: #0b3d2e;
+  --green-dark: #082f24;
+  --green-light: #edf5f1;
+  --gold: #d4af37;
+  --gold-dark: #b8941f;
+  --white: #ffffff;
+  --background: #f5f7f5;
+  --text: #17342b;
+  --muted: #718079;
+  --border: #e1e8e4;
+  --danger: #c0392b;
+  --danger-bg: #fff1ef;
+  --shadow: 0 20px 60px rgba(11, 61, 46, 0.10);
+}
+
+/* =========================================================
+   RESET
+   ========================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: "Poppins", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(212, 175, 55, 0.08), transparent 30%),
+    linear-gradient(135deg, #f7faf8 0%, #f3f6f4 100%);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+input,
+textarea,
+select {
+  outline: none;
+}
+
+/* =========================================================
+   BRAND
+   ========================================================= */
+
+.brand {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.8px;
+  color: var(--green);
+}
+
+.brand span {
+  color: var(--gold);
+}
+
+/* =========================================================
+   AUTH PAGE
+   ========================================================= */
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(212, 175, 55, 0.12), transparent 28%),
+    radial-gradient(circle at 85% 85%, rgba(11, 61, 46, 0.10), transparent 32%),
+    #f5f7f5;
+}
+
+/* =========================================================
+   AUTH CARD
+   ========================================================= */
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 42px;
+  background: var(--white);
+  border: 1px solid rgba(11, 61, 46, 0.08);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+}
+
+.auth-card .brand {
+  margin-bottom: 8px;
+}
+
+.auth-card .subtitle {
+  margin: 0 0 34px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-card h1 {
+  margin: 0 0 8px;
+  color: var(--green);
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.auth-card .description {
+  margin: 0 0 28px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* =========================================================
+   FORM
+   ========================================================= */
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.auth-card label {
+  display: block;
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-card input {
+  width: 100%;
+  height: 50px;
+  margin: 0 0 19px;
+  padding: 0 15px;
+  color: var(--text);
+  background: var(--white);
+  border: 1px solid #d9e2dd;
+  border-radius: 10px;
+  font-size: 14px;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.auth-card input::placeholder {
+  color: #a1aaa6;
+}
+
+.auth-card input:hover {
+  border-color: #c5d2cb;
+}
+
+.auth-card input:focus {
+  border-color: var(--green);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(11, 61, 46, 0.09);
+}
+
+/* =========================================================
+   ERROR MESSAGE
+   ========================================================= */
+
+.error {
+  width: 100%;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid #f1c9c4;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* =========================================================
+   LOGIN BUTTON
+   ========================================================= */
+
+.login-button {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 3px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--white);
+  background: var(--green);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(11, 61, 46, 0.16);
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.login-button:hover:not(:disabled) {
+  background: var(--green-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(11, 61, 46, 0.20);
+}
+
+.login-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.login-button:disabled {
+  opacity: 0.65;
+}
+
+/* =========================================================
+   SECURITY NOTE
+   ========================================================= */
+
+.security-note {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid #edf0ee;
+  color: #8a9590;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* =========================================================
+   DASHBOARD PAGE
+   ========================================================= */
+
+.dashboard-page {
+  min-height: 100vh;
+  background: var(--background);
+}
+
+/* =========================================================
+   TOPBAR
+   ========================================================= */
+
+.topbar {
+  width: 100%;
+  min-height: 76px;
+  padding: 0 5%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--green);
+  color: var(--white);
+  box-shadow: 0 4px 20px rgba(11, 61, 46, 0.12);
+}
+
+.topbar .brand {
+  color: var(--white);
+}
+
+.topbar .brand span {
+  color: var(--gold);
+}
+
+.topbar small {
+  display: block;
+  margin-top: 5px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+/* =========================================================
+   LOGOUT BUTTON
+   ========================================================= */
+
+.logout-button {
+  min-height: 40px;
+  padding: 0 17px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 9px;
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.logout-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.40);
+}
+
+/* =========================================================
+   DASHBOARD CONTENT
+   ========================================================= */
+
+.dashboard-content {
+  width: min(1100px, 90%);
+  margin: 0 auto;
+  padding: 50px 0 70px;
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr;
+  gap: 24px;
+}
+
+/* =========================================================
+   WELCOME CARD
+   ========================================================= */
+
+.welcome-card,
+.next-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 8px 30px rgba(11, 61, 46, 0.06);
+}
+
+.welcome-card {
+  position: relative;
+  padding: 34px;
+}
+
+.welcome-card .status {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 6px 10px;
+  color: var(--green);
+  background: var(--green-light);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.welcome-card h1 {
+  margin: 0 0 10px;
+  color: var(--green);
+  font-size: 27px;
+  line-height: 1.25;
+  letter-spacing: -0.5px;
+}
+
+.welcome-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* =========================================================
+   USER BOX
+   ========================================================= */
+
+.user-box {
+  margin-top: 28px;
+  padding: 17px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: #f8faf9;
+  border: 1px solid #e6ece9;
+  border-radius: 11px;
+}
+
+.user-box strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.user-box span {
+  color: var(--muted);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* =========================================================
+   NEXT CARD
+   ========================================================= */
+
+.next-card {
+  padding: 30px;
+}
+
+.next-card h2 {
+  margin: 0 0 12px;
+  color: var(--green);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.next-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* =========================================================
+   LOADING STATE
+   ========================================================= */
+
+.auth-page .auth-card > p:not(.subtitle):not(.description) {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* =========================================================
+   RESPONSIVE — TABLET
+   ========================================================= */
+
+@media (max-width: 850px) {
+  .dashboard-content {
+    grid-template-columns: 1fr;
+    width: min(700px, 90%);
+  }
+}
+
+/* =========================================================
+   RESPONSIVE — MOBILE
+   ========================================================= */
+
+@media (max-width: 600px) {
+  .auth-page {
+    padding: 20px 14px;
+    align-items: flex-start;
+    padding-top: 50px;
+  }
+
+  .auth-card {
+    max-width: 100%;
+    padding: 30px 24px;
+    border-radius: 18px;
+  }
+
+  .auth-card h1 {
+    font-size: 24px;
+  }
+
+  .auth-card .subtitle {
+    margin-bottom: 28px;
+  }
+
+  .topbar {
+    min-height: 70px;
+    padding: 0 18px;
+  }
+
+  .topbar .brand {
+    font-size: 22px;
+  }
+
+  .topbar small {
+    display: none;
+  }
+
+  .logout-button {
+    min-height: 37px;
+    padding: 0 13px;
+  }
+
+  .dashboard-content {
+    width: 92%;
+    padding: 28px 0 50px;
+    gap: 16px;
+  }
+
+  .welcome-card,
+  .next-card {
+    padding: 24px;
+    border-radius: 15px;
+  }
+
+  .welcome-card h1 {
+    font-size: 23px;
+  }
+}
+
+/* =========================================================
+   VERY SMALL SCREENS
+   ========================================================= */
+
+@media (max-width: 380px) {
+  .auth-page {
+    padding: 35px 10px;
+  }
+
+  .auth-card {
+    padding: 26px 18px;
+  }
+
+  .auth-card h1 {
+    font-size: 22px;
+  }
+
+  .topbar {
+    padding: 0 13px;
+  }
+
+  .topbar .brand {
+    font-size: 20px;
+  }
+
+  .dashboard-content {
+    width: 94%;
+  }
+}
+
+/* =========================================================
+   ACCESSIBILITY
+   ========================================================= */
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(212, 175, 55, 0.35);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
