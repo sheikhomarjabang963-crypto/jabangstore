@@ -1,4 +1,174 @@
-import { useState } from 'react';
-const products=[['Rice 5kg',420,24],['Cooking Oil 1L',115,18],['Sugar 1kg',75,31],['Milk 500ml',55,9],['Bread',45,14],['Biscuit Pack',35,27]] as const;
-const money=(n:number)=>new Intl.NumberFormat('en-GM',{style:'currency',currency:'GMD'}).format(n);
-export default function App(){const[q,setQ]=useState('');const[cart,setCart]=useState<{name:string;price:number;qty:number}[]>([]);const filtered=products.filter(p=>p[0].toLowerCase().includes(q.toLowerCase()));const total=cart.reduce((s,i)=>s+i.price*i.qty,0);function add(p:typeof products[number]){setCart(c=>{const f=c.find(i=>i.name===p[0]);return f?c.map(i=>i.name===p[0]?{...i,qty:i.qty+1}:i):[...c,{name:p[0],price:p[1],qty:1}]})}function qty(name:string,d:number){setCart(c=>c.map(i=>i.name===name?{...i,qty:i.qty+d}:i).filter(i=>i.qty>0))}return <div className="app"><header><div><div className="brand">Jabang<span>Store</span></div><small>Retail management & POS</small></div><div>● Online</div></header><main><section className="hero"><div><p>PHASE 1 • FOUNDATION</p><h1>Fast, simple shop management.</h1><span>Professional foundation for the JabangStore multi-business POS platform.</span></div><div className="stat"><small>Current cart</small><b>{money(total)}</b></div></section><section className="grid"><div className="panel"><div className="heading"><div><h2>Products</h2><small>Search and add products</small></div><input placeholder="Search products..." value={q} onChange={e=>setQ(e.target.value)}/></div><div className="products">{filtered.map(p=><button className="product" key={p[0]} onClick={()=>add(p)}><i>{p[0][0]}</i><strong>{p[0]}</strong><span>{money(p[1])}</span><small>{p[2]} in stock</small></button>)}</div></div><aside className="panel cart"><div className="heading"><div><h2>Cart</h2><small>{cart.reduce((n,i)=>n+i.qty,0)} items</small></div>{cart.length>0&&<button className="clear" onClick={()=>setCart([])}>Clear</button>}</div><div className="items">{cart.length===0?<div className="empty"><b>Cart is empty</b><small>Add products to begin a sale.</small></div>:cart.map(i=><div className="row" key={i.name}><div><strong>{i.name}</strong><small>{money(i.price)} each</small></div><div className="qty"><button onClick={()=>qty(i.name,-1)}>−</button><b>{i.qty}</b><button onClick={()=>qty(i.name,1)}>+</button></div></div>)}</div><div className="checkout"><div><span>Grand total</span><b>{money(total)}</b></div><button disabled={!cart.length}>Proceed to payment</button></div></aside></section></main></div>}
+import { useEffect, useState } from 'react';
+import { supabase } from './lib/supabase';
+
+export default function App() {
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+
+    setError('');
+
+    if (!email.trim() || !password) {
+      setError('Please enter your email and password.');
+      return;
+    }
+
+    setLoggingIn(true);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    if (error) {
+      setError(error.message);
+    }
+
+    setLoggingIn(false);
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+  }
+
+  if (loading) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="brand">Jabang<span>Store</span></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="brand">Jabang<span>Store</span></div>
+
+          <p className="subtitle">
+            Retail management & POS
+          </p>
+
+          <h1>Welcome back</h1>
+
+          <p className="description">
+            Sign in to your JabangStore account.
+          </p>
+
+          <form onSubmit={handleLogin}>
+            <label>Email address</label>
+
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+
+            <label>Password</label>
+
+            <input
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+
+            {error && (
+              <div className="error">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="login-button"
+              disabled={loggingIn}
+            >
+              {loggingIn ? 'Signing in...' : 'Sign in'}
+            </button>
+          </form>
+
+          <div className="security-note">
+            🔒 Secure authentication powered by Supabase
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-page">
+      <header className="topbar">
+        <div>
+          <div className="brand">
+            Jabang<span>Store</span>
+          </div>
+
+          <small>Retail management & POS</small>
+        </div>
+
+        <button
+          className="logout-button"
+          onClick={handleLogout}
+        >
+          Sign out
+        </button>
+      </header>
+
+      <main className="dashboard-content">
+        <div className="welcome-card">
+          <span className="status">● Online</span>
+
+          <h1>Authentication connected</h1>
+
+          <p>
+            You are successfully signed in to JabangStore.
+          </p>
+
+          <div className="user-box">
+            <strong>Signed-in account</strong>
+            <span>{session.user.email}</span>
+          </div>
+        </div>
+
+        <div className="next-card">
+          <h2>JabangStore</h2>
+
+          <p>
+            Your secure foundation is being built.
+            Products, inventory, customers, POS, reports,
+            business management and other modules will be
+            connected step-by-step.
+          </p>
+        </div>
+      </main>
+    </div>
+  );
+}
