@@ -92,6 +92,21 @@ type RecentSale = {
   created_at: string;
 };
 
+type POSCartItem = Product & {
+  quantity: number;
+  itemDiscount: number;
+};
+
+type POSReceipt = {
+  sale_id: string;
+  sale_number: string;
+  subtotal: number;
+  discount: number;
+  total: number;
+  amount_received: number;
+  change_amount: number;
+};
+
 type OwnerPage =
   | 'dashboard'
   | 'products'
@@ -280,6 +295,42 @@ export default function App() {
 
   const [adjusting, setAdjusting] =
     useState(false);
+
+  /*
+   * ========================================================
+   * POS STATE
+   * ========================================================
+   */
+
+  const [posProducts, setPosProducts] =
+    useState<Product[]>([]);
+
+  const [posStock, setPosStock] =
+    useState<Record<string, number>>({});
+
+  const [posSearch, setPosSearch] =
+    useState('');
+
+  const [posCart, setPosCart] =
+    useState<POSCartItem[]>([]);
+
+  const [posPaymentMethod, setPosPaymentMethod] =
+    useState('cash');
+
+  const [posAmountReceived, setPosAmountReceived] =
+    useState('');
+
+  const [posDiscount, setPosDiscount] =
+    useState('0');
+
+  const [posCompleting, setPosCompleting] =
+    useState(false);
+
+  const [posLoading, setPosLoading] =
+    useState(false);
+
+  const [posReceipt, setPosReceipt] =
+    useState<POSReceipt | null>(null);
 
   /*
    * ========================================================
@@ -904,6 +955,10 @@ export default function App() {
         ),
       ]);
     }
+
+    if (page === 'pos') {
+      await loadPOSData(ownerBusiness.id);
+    }
   }
 
   async function createCategory(
@@ -1373,6 +1428,353 @@ export default function App() {
     }
 
     setAdjusting(false);
+  }
+
+  /*
+   * ========================================================
+   * POS
+   * ========================================================
+   */
+
+  async function loadPOSData(businessId: string) {
+    setPosLoading(true);
+    setError('');
+
+    const [productsResult, branchesResult] = await Promise.all([
+      supabase
+        .from('products')
+        .select(
+          'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active'
+        )
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .order('name'),
+      supabase
+        .from('branches')
+        .select('id, business_id, name, address, phone')
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .order('name'),
+    ]);
+
+    if (productsResult.error) {
+      setError(productsResult.error.message);
+      setPosLoading(false);
+      return;
+    }
+
+    if (branchesResult.error) {
+      setError(branchesResult.error.message);
+      setPosLoading(false);
+      return;
+    }
+
+    const productData = (productsResult.data || []) as Product[];
+    const branchData = (branchesResult.data || []) as Branch[];
+
+    setPosProducts(productData);
+    setBranches(branchData);
+
+    const branchId =
+      selectedBranch && branchData.some((branch) => branch.id === selectedBranch)
+        ? selectedBranch
+        : branchData[0]?.id || '';
+
+    setSelectedBranch(branchId);
+
+    if (!branchId) {
+      setPosStock({});
+      setPosLoading(false);
+      return;
+    }
+
+    const { data: stockData, error: stockError } = await supabase
+      .from('inventory')
+      .select('product_id, quantity')
+      .eq('business_id', businessId)
+      .eq('branch_id', branchId);
+
+    if (stockError) {
+      setError(stockError.message);
+      setPosLoading(false);
+      return;
+    }
+
+    const stockMap: Record<string, number> = {};
+    (stockData || []).forEach((row: { product_id: string; quantity: number }) => {
+      stockMap[row.product_id] = Number(row.quantity || 0);
+    });
+
+    setPosStock(stockMap);
+    setPosLoading(false);
+  }
+
+  async function loadPOSStock(businessId: string, branchId: string) {
+    if (!branchId) {
+      setPosStock({});
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('inventory')
+      .select('product_id, quantity')
+      .eq('business_id', businessId)
+      .eq('branch_id', branchId);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    const stockMap: Record<string, number> = {};
+    (data || []).forEach((row: { product_id: string; quantity: number }) => {
+      stockMap[row.product_id] = Number(row.quantity || 0);
+    });
+
+    setPosStock(stockMap);
+  }
+
+  function addToPOSCart(product: Product) {
+    const available = Number(posStock[product.id] || 0);
+    const existing = posCart.find((item) => item.id === product.id);
+
+    if (available <= 0) {
+      setError(`${product.name} is out of stock.`);
+      return;
+    }
+
+    if (existing && existing.quantity >= available) {
+      setError(`Only ${available} unit(s) of ${product.name} are available.`);
+      return;
+    }
+
+    setError('');
+
+    if (existing) {
+      setPosCart((current) =>
+        current.map((item) =>
+          item.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+      );
+      return;
+    }
+
+    setPosCart((current) => [
+      ...current,
+      { ...product, quantity: 1, itemDiscount: 0 },
+    ]);
+  }
+
+  function changePOSQuantity(productId: string, nextQuantity: number) {
+    const available = Number(posStock[productId] || 0);
+
+    if (nextQuantity <= 0) {
+      setPosCart((current) =>
+        current.filter((item) => item.id !== productId)
+      );
+      return;
+    }
+
+    if (nextQuantity > available) {
+      const product = posProducts.find((item) => item.id === productId);
+      setError(
+        `${product?.name || 'Product'} has only ${available} unit(s) available.`
+      );
+      return;
+    }
+
+    setError('');
+    setPosCart((current) =>
+      current.map((item) =>
+        item.id === productId
+          ? { ...item, quantity: nextQuantity }
+          : item
+      )
+    );
+  }
+
+  function removeFromPOSCart(productId: string) {
+    setPosCart((current) =>
+      current.filter((item) => item.id !== productId)
+    );
+  }
+
+  function clearPOSCart() {
+    setPosCart([]);
+    setPosDiscount('0');
+    setPosAmountReceived('');
+    setPosReceipt(null);
+    setError('');
+  }
+
+  const posSubtotal = posCart.reduce(
+    (sum, item) =>
+      sum +
+      Number(item.selling_price || 0) * item.quantity -
+      Number(item.itemDiscount || 0),
+    0
+  );
+
+  const posSaleDiscount = Math.max(
+    0,
+    Number(posDiscount || 0)
+  );
+
+  const posTotal = Math.max(
+    0,
+    posSubtotal - posSaleDiscount
+  );
+
+  const posReceived =
+    posPaymentMethod === 'cash'
+      ? Number(posAmountReceived || 0)
+      : posTotal;
+
+  const posChange = Math.max(
+    0,
+    posReceived - posTotal
+  );
+
+  const filteredPOSProducts = posProducts.filter((product) => {
+    const search = posSearch.toLowerCase().trim();
+    if (!search) return true;
+
+    return (
+      product.name.toLowerCase().includes(search) ||
+      (product.sku || '').toLowerCase().includes(search) ||
+      (product.barcode || '').toLowerCase().includes(search)
+    );
+  });
+
+  async function completePOSSale() {
+    if (!ownerBusiness) return;
+
+    if (!selectedBranch) {
+      setError('Please select a branch before completing the sale.');
+      return;
+    }
+
+    if (posCart.length === 0) {
+      setError('Cart is empty. Add a product first.');
+      return;
+    }
+
+    if (posSaleDiscount > posSubtotal) {
+      setError('Sale discount cannot exceed the subtotal.');
+      return;
+    }
+
+    if (posPaymentMethod === 'cash' && posReceived < posTotal) {
+      setError(
+        `Insufficient payment. Required GMD ${formatGMD(posTotal)}.`
+      );
+      return;
+    }
+
+    setPosCompleting(true);
+    setError('');
+
+    const items = posCart.map((item) => ({
+      product_id: item.id,
+      quantity: item.quantity,
+      discount: Number(item.itemDiscount || 0),
+    }));
+
+    const { data, error } = await supabase.rpc(
+      'create_pos_sale',
+      {
+        target_business_id: ownerBusiness.id,
+        target_branch_id: selectedBranch,
+        target_customer_id: null,
+        target_payment_method: posPaymentMethod,
+        target_amount_received: posReceived,
+        target_discount: posSaleDiscount,
+        target_items: items,
+      }
+    );
+
+    if (error) {
+      setError(error.message);
+      setPosCompleting(false);
+      await loadPOSStock(ownerBusiness.id, selectedBranch);
+      return;
+    }
+
+    const receipt = Array.isArray(data) ? data[0] : data;
+
+    if (!receipt) {
+      setError('Sale completed but no receipt data was returned.');
+      setPosCompleting(false);
+      return;
+    }
+
+    const normalizedReceipt: POSReceipt = {
+      sale_id: receipt.sale_id,
+      sale_number: receipt.sale_number,
+      subtotal: Number(receipt.subtotal || 0),
+      discount: Number(receipt.discount || 0),
+      total: Number(receipt.total || 0),
+      amount_received: Number(receipt.amount_received || 0),
+      change_amount: Number(receipt.change_amount || 0),
+    };
+
+    setPosReceipt(normalizedReceipt);
+    setPosCart([]);
+    setPosDiscount('0');
+    setPosAmountReceived('');
+
+    await Promise.all([
+      loadPOSStock(ownerBusiness.id, selectedBranch),
+      loadOwnerDashboard(ownerBusiness.id),
+    ]);
+
+    setPosCompleting(false);
+  }
+
+  function printPOSReceipt() {
+    if (!posReceipt || !ownerBusiness) return;
+
+    const receiptWindow = window.open('', '_blank', 'width=420,height=700');
+
+    if (!receiptWindow) {
+      setError('Please allow pop-ups in your browser to print the receipt.');
+      return;
+    }
+
+    receiptWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${posReceipt.sale_number}</title>
+          <style>
+            body { font-family: Arial, sans-serif; width: 300px; margin: 20px auto; color: #111; }
+            h2, p { text-align: center; margin: 6px 0; }
+            hr { border: 0; border-top: 1px dashed #999; margin: 12px 0; }
+            .row { display: flex; justify-content: space-between; margin: 6px 0; }
+            .total { font-size: 18px; font-weight: 700; margin-top: 12px; }
+          </style>
+        </head>
+        <body>
+          <h2>JabangStore</h2>
+          <p>${ownerBusiness.name}</p>
+          <hr />
+          <p><strong>${posReceipt.sale_number}</strong></p>
+          <p>${new Date().toLocaleString()}</p>
+          <hr />
+          <div class="row"><span>Subtotal</span><span>GMD ${formatGMD(posReceipt.subtotal)}</span></div>
+          <div class="row"><span>Discount</span><span>GMD ${formatGMD(posReceipt.discount)}</span></div>
+          <div class="row total"><span>Total</span><span>GMD ${formatGMD(posReceipt.total)}</span></div>
+          <div class="row"><span>Paid</span><span>GMD ${formatGMD(posReceipt.amount_received)}</span></div>
+          <div class="row"><span>Change</span><span>GMD ${formatGMD(posReceipt.change_amount)}</span></div>
+          <hr />
+          <p>Thank you for your business.</p>
+          <script>window.onload = () => { window.print(); window.close(); };</script>
+        </body>
+      </html>
+    `);
+    receiptWindow.document.close();
   }
 
   /*
@@ -3965,98 +4367,402 @@ export default function App() {
 
   /*
    * ========================================================
+   * POS
+   * ========================================================
+   */
+
+  if (ownerPage === 'pos') {
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+          </div>
+
+          <button
+            className="logout-button"
+            onClick={handleLogout}
+          >
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <section className="admin-header">
+            <div>
+              <span className="status">● POS Checkout</span>
+              <h1>Point of Sale</h1>
+              <p>Fast, secure checkout for {ownerBusiness.name}.</p>
+            </div>
+
+            <div className="form-actions">
+              <button
+                className="secondary-button"
+                onClick={() => openOwnerPage('dashboard')}
+              >
+                ← Dashboard
+              </button>
+
+              <button
+                className="secondary-button"
+                onClick={() => loadPOSData(ownerBusiness.id)}
+                disabled={posLoading || posCompleting}
+              >
+                {posLoading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </section>
+
+          {error && <div className="error">{error}</div>}
+
+          {branches.length === 0 ? (
+            <section className="empty-card">
+              <div className="empty-icon">🏪</div>
+              <h3>No active branch available</h3>
+              <p>Create an active branch before using the POS.</p>
+            </section>
+          ) : (
+            <>
+              <section className="business-section">
+                <div className="section-title">
+                  <div>
+                    <h2>Checkout</h2>
+                    <p>Select a branch, add products and complete the sale.</p>
+                  </div>
+
+                  <select
+                    value={selectedBranch}
+                    onChange={async (e) => {
+                      const branchId = e.target.value;
+                      setSelectedBranch(branchId);
+                      setPosCart([]);
+                      setPosReceipt(null);
+                      setPosAmountReceived('');
+                      await loadPOSStock(ownerBusiness.id, branchId);
+                    }}
+                    disabled={posCompleting}
+                  >
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1.5fr) minmax(340px, 0.8fr)',
+                    gap: '20px',
+                    alignItems: 'start',
+                  }}
+                >
+                  <div>
+                    <input
+                      className="product-search"
+                      placeholder="Search product, SKU or barcode..."
+                      value={posSearch}
+                      onChange={(e) => setPosSearch(e.target.value)}
+                      autoFocus
+                    />
+
+                    {posLoading ? (
+                      <div className="empty-card">Loading POS products...</div>
+                    ) : filteredPOSProducts.length === 0 ? (
+                      <div className="empty-card">
+                        <div className="empty-icon">📦</div>
+                        <h3>No products found</h3>
+                        <p>Add active products or change your search.</p>
+                      </div>
+                    ) : (
+                      <div
+                        className="business-grid"
+                        style={{ marginTop: '16px' }}
+                      >
+                        {filteredPOSProducts.map((product) => {
+                          const stock = Number(posStock[product.id] || 0);
+                          const inCart =
+                            posCart.find((item) => item.id === product.id)?.quantity || 0;
+
+                          return (
+                            <button
+                              key={product.id}
+                              className="business-card"
+                              onClick={() => addToPOSCart(product)}
+                              disabled={stock <= inCart || posCompleting}
+                              style={{ textAlign: 'left', cursor: stock > inCart ? 'pointer' : 'not-allowed' }}
+                            >
+                              <div className="business-icon">🛒</div>
+                              <div className="business-info">
+                                <h3>{product.name}</h3>
+                                <p>GMD {formatGMD(Number(product.selling_price))}</p>
+                                <p>
+                                  Stock: {stock}
+                                  {inCart > 0 ? ` · Cart: ${inCart}` : ''}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <aside
+                    className="create-business-card"
+                    style={{ position: 'sticky', top: '16px' }}
+                  >
+                    <div className="section-title">
+                      <div>
+                        <h2>Cart</h2>
+                        <p>{posCart.length} product{posCart.length === 1 ? '' : 's'}</p>
+                      </div>
+                      {posCart.length > 0 && (
+                        <button
+                          className="secondary-button"
+                          onClick={clearPOSCart}
+                          disabled={posCompleting}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {posCart.length === 0 ? (
+                      <div className="empty-card">
+                        <div className="empty-icon">🛒</div>
+                        <h3>Your cart is empty</h3>
+                        <p>Click a product to add it to the sale.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="table-wrapper">
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th>Item</th>
+                                <th>Qty</th>
+                                <th>Total</th>
+                                <th></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {posCart.map((item) => (
+                                <tr key={item.id}>
+                                  <td>
+                                    <strong>{item.name}</strong>
+                                    <small style={{ display: 'block' }}>
+                                      GMD {formatGMD(Number(item.selling_price))}
+                                    </small>
+                                  </td>
+                                  <td>
+                                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                                      <button
+                                        className="secondary-button"
+                                        onClick={() => changePOSQuantity(item.id, item.quantity - 1)}
+                                        disabled={posCompleting}
+                                      >−</button>
+                                      <strong>{item.quantity}</strong>
+                                      <button
+                                        className="secondary-button"
+                                        onClick={() => changePOSQuantity(item.id, item.quantity + 1)}
+                                        disabled={posCompleting || item.quantity >= Number(posStock[item.id] || 0)}
+                                      >+</button>
+                                    </div>
+                                  </td>
+                                  <td>
+                                    GMD {formatGMD(Number(item.selling_price) * item.quantity - Number(item.itemDiscount || 0))}
+                                  </td>
+                                  <td>
+                                    <button
+                                      className="secondary-button"
+                                      onClick={() => removeFromPOSCart(item.id)}
+                                      disabled={posCompleting}
+                                    >
+                                      ×
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div style={{ marginTop: '20px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <span>Subtotal</span>
+                            <strong>GMD {formatGMD(posSubtotal)}</strong>
+                          </div>
+
+                          <label>Sale discount (GMD)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={posDiscount}
+                            onChange={(e) => setPosDiscount(e.target.value)}
+                            disabled={posCompleting}
+                          />
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', margin: '16px 0', fontSize: '20px' }}>
+                            <strong>Total</strong>
+                            <strong>GMD {formatGMD(posTotal)}</strong>
+                          </div>
+
+                          <label>Payment method</label>
+                          <select
+                            value={posPaymentMethod}
+                            onChange={(e) => {
+                              setPosPaymentMethod(e.target.value);
+                              if (e.target.value !== 'cash') setPosAmountReceived('');
+                            }}
+                            disabled={posCompleting}
+                          >
+                            <option value="cash">Cash</option>
+                            <option value="mobile_money">Mobile Money</option>
+                            <option value="card">Card</option>
+                            <option value="bank_transfer">Bank Transfer</option>
+                          </select>
+
+                          {posPaymentMethod === 'cash' && (
+                            <>
+                              <label>Amount received (GMD)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={posAmountReceived}
+                                onChange={(e) => setPosAmountReceived(e.target.value)}
+                                placeholder={formatGMD(posTotal)}
+                                disabled={posCompleting}
+                              />
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
+                                <span>Change</span>
+                                <strong>GMD {formatGMD(posChange)}</strong>
+                              </div>
+                            </>
+                          )}
+
+                          <button
+                            className="primary-button"
+                            onClick={completePOSSale}
+                            disabled={posCompleting || posCart.length === 0}
+                            style={{ width: '100%', marginTop: '20px' }}
+                          >
+                            {posCompleting ? 'Completing Sale...' : 'Complete Sale'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </aside>
+                </div>
+              </section>
+
+              {posReceipt && (
+                <section className="business-section" id="pos-receipt">
+                  <div className="create-business-card">
+                    <div className="section-title">
+                      <div>
+                        <span className="status">● Sale Completed</span>
+                        <h2>Receipt</h2>
+                        <p>{posReceipt.sale_number}</p>
+                      </div>
+                      <div className="form-actions">
+                        <button className="primary-button" onClick={printPOSReceipt}>Print Receipt</button>
+                        <button className="secondary-button" onClick={() => setPosReceipt(null)}>Close</button>
+                      </div>
+                    </div>
+
+                    <div style={{ maxWidth: '420px', margin: '0 auto', textAlign: 'center' }}>
+                      <h2>JabangStore</h2>
+                      <p>{ownerBusiness.name}</p>
+                      <hr />
+                      <p><strong>Sale:</strong> {posReceipt.sale_number}</p>
+                      <p><strong>Date:</strong> {new Date().toLocaleString()}</p>
+                      <hr />
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Subtotal</span>
+                        <span>GMD {formatGMD(posReceipt.subtotal)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Discount</span>
+                        <span>GMD {formatGMD(posReceipt.discount)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', marginTop: '10px' }}>
+                        <strong>Total</strong>
+                        <strong>GMD {formatGMD(posReceipt.total)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
+                        <span>Paid</span>
+                        <span>GMD {formatGMD(posReceipt.amount_received)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Change</span>
+                        <span>GMD {formatGMD(posReceipt.change_amount)}</span>
+                      </div>
+                      <hr />
+                      <p>Thank you for your business.</p>
+                    </div>
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
    * OTHER OWNER MODULES
    * ========================================================
    */
 
   if (
-    ownerPage === 'pos' ||
-    ownerPage ===
-      'customers' ||
-    ownerPage ===
-      'reports' ||
-    ownerPage ===
-      'settings'
+    ownerPage === 'customers' ||
+    ownerPage === 'reports' ||
+    ownerPage === 'settings'
   ) {
-
     const moduleNames = {
-      pos: 'POS',
-      customers:
-        'Customers',
-      reports:
-        'Reports',
-      settings:
-        'Settings',
+      customers: 'Customers',
+      reports: 'Reports',
+      settings: 'Settings',
     };
 
     return (
       <div className="dashboard-page">
-
         <header className="topbar">
-
           <div>
-
             <div className="brand">
               Jabang<span>Store</span>
             </div>
-
-            <small>
-              {
-                ownerBusiness.name
-              }
-            </small>
-
+            <small>{ownerBusiness.name}</small>
           </div>
-
-          <button
-            className="logout-button"
-            onClick={
-              handleLogout
-            }
-          >
+          <button className="logout-button" onClick={handleLogout}>
             Sign out
           </button>
-
         </header>
 
         <main className="admin-content">
-
           <button
             className="secondary-button"
-            onClick={() =>
-              openOwnerPage(
-                'dashboard'
-              )
-            }
+            onClick={() => openOwnerPage('dashboard')}
           >
             ← Dashboard
           </button>
 
           <section className="empty-card">
-
-            <div className="empty-icon">
-              🚧
-            </div>
-
-            <h1>
-              {
-                moduleNames[
-                  ownerPage
-                ]
-              }
-            </h1>
-
-            <p>
-              This module is part of the
-              JabangStore build and will be
-              connected to the real database in
-              its dedicated implementation stage.
-            </p>
-
+            <div className="empty-icon">🚧</div>
+            <h1>{moduleNames[ownerPage]}</h1>
+            <p>This module will be connected in its dedicated implementation stage.</p>
           </section>
-
         </main>
-
       </div>
     );
   }
