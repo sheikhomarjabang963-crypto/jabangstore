@@ -78,7 +78,7 @@ export default function App() {
     setError('');
 
     const { data, error } = await supabase.rpc('create_business', {
-      target_name: name,
+      business: name,
     });
 
     if (error) {
