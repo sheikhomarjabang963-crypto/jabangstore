@@ -8,12 +8,20 @@ type Business = {
   created_at: string;
 };
 
+type BusinessUser = {
+  id: string;
+  email: string;
+};
+
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
+
+  const [users, setUsers] = useState<BusinessUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [error, setError] = useState('');
 
@@ -23,6 +31,12 @@ export default function App() {
 
   const [selectedBusiness, setSelectedBusiness] =
     useState<Business | null>(null);
+
+  const [selectedOwner, setSelectedOwner] =
+    useState('');
+
+  const [assigningOwner, setAssigningOwner] =
+    useState(false);
 
   useEffect(() => {
     loadSession();
@@ -35,8 +49,10 @@ export default function App() {
 
         if (newSession) {
           await loadBusinesses();
+          await loadUsers();
         } else {
           setBusinesses([]);
+          setUsers([]);
           setSelectedBusiness(null);
         }
       }
@@ -46,7 +62,8 @@ export default function App() {
   }, []);
 
   async function loadSession() {
-    const { data, error } = await supabase.auth.getSession();
+    const { data, error } =
+      await supabase.auth.getSession();
 
     if (error) {
       setError(error.message);
@@ -57,6 +74,7 @@ export default function App() {
 
     if (data.session) {
       await loadBusinesses();
+      await loadUsers();
     }
   }
 
@@ -66,8 +84,12 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('businesses')
-      .select('id, name, status, created_at')
-      .order('created_at', { ascending: false });
+      .select(
+        'id, name, status, created_at'
+      )
+      .order('created_at', {
+        ascending: false,
+      });
 
     if (error) {
       setError(error.message);
@@ -78,25 +100,48 @@ export default function App() {
     setLoadingBusinesses(false);
   }
 
-  async function createBusiness(e: React.FormEvent) {
+  async function loadUsers() {
+    setLoadingUsers(true);
+
+    const { data, error } =
+      await supabase.rpc(
+        'get_business_users'
+      );
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setUsers(data || []);
+    }
+
+    setLoadingUsers(false);
+  }
+
+  async function createBusiness(
+    e: React.FormEvent
+  ) {
     e.preventDefault();
 
-    const name = businessName.trim();
+    const name =
+      businessName.trim();
 
     if (!name) {
-      setError('Please enter a business name.');
+      setError(
+        'Please enter a business name.'
+      );
       return;
     }
 
     setCreating(true);
     setError('');
 
-    const { data, error } = await supabase.rpc(
-      'create_business',
-      {
-        business: name,
-      }
-    );
+    const { data, error } =
+      await supabase.rpc(
+        'create_business',
+        {
+          business: name,
+        }
+      );
 
     if (error) {
       setError(error.message);
@@ -106,23 +151,71 @@ export default function App() {
 
       await loadBusinesses();
 
-      console.log('Created business:', data);
+      console.log(
+        'Created business:',
+        data
+      );
     }
 
     setCreating(false);
+  }
+
+  async function assignOwner() {
+    if (!selectedBusiness) {
+      return;
+    }
+
+    if (!selectedOwner) {
+      setError(
+        'Please select a business owner.'
+      );
+      return;
+    }
+
+    setAssigningOwner(true);
+    setError('');
+
+    const { error } =
+      await supabase.rpc(
+        'assign_business_owner',
+        {
+          target_business_id:
+            selectedBusiness.id,
+          target_user_id:
+            selectedOwner,
+        }
+      );
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setError('');
+
+      alert(
+        'Business owner assigned successfully.'
+      );
+
+      setSelectedOwner('');
+    }
+
+    setAssigningOwner(false);
   }
 
   async function handleLogout() {
     await supabase.auth.signOut();
   }
 
-  function openBusiness(business: Business) {
+  function openBusiness(
+    business: Business
+  ) {
     setSelectedBusiness(business);
+    setSelectedOwner('');
     setError('');
   }
 
   function closeBusiness() {
     setSelectedBusiness(null);
+    setSelectedOwner('');
     setError('');
   }
 
@@ -144,6 +237,7 @@ export default function App() {
     return (
       <div className="auth-page">
         <div className="auth-card">
+
           <div className="brand">
             Jabang<span>Store</span>
           </div>
@@ -152,10 +246,13 @@ export default function App() {
             Retail management & POS
           </p>
 
-          <h1>Welcome back</h1>
+          <h1>
+            Welcome back
+          </h1>
 
           <p className="description">
-            Sign in to your JabangStore account.
+            Sign in to your JabangStore
+            account.
           </p>
 
           <form
@@ -164,14 +261,17 @@ export default function App() {
 
               setError('');
 
-              const emailInput = e.currentTarget.elements.namedItem(
-                'email'
-              ) as HTMLInputElement;
+              const emailInput =
+                e.currentTarget.elements
+                  .namedItem(
+                    'email'
+                  ) as HTMLInputElement;
 
               const passwordInput =
-                e.currentTarget.elements.namedItem(
-                  'password'
-                ) as HTMLInputElement;
+                e.currentTarget.elements
+                  .namedItem(
+                    'password'
+                  ) as HTMLInputElement;
 
               if (
                 !emailInput.value ||
@@ -184,17 +284,25 @@ export default function App() {
               }
 
               const { error } =
-                await supabase.auth.signInWithPassword({
-                  email: emailInput.value.trim(),
-                  password: passwordInput.value,
-                });
+                await supabase.auth
+                  .signInWithPassword({
+                    email:
+                      emailInput.value.trim(),
+                    password:
+                      passwordInput.value,
+                  });
 
               if (error) {
-                setError(error.message);
+                setError(
+                  error.message
+                );
               }
             }}
           >
-            <label>Email address</label>
+
+            <label>
+              Email address
+            </label>
 
             <input
               name="email"
@@ -203,7 +311,9 @@ export default function App() {
               autoComplete="email"
             />
 
-            <label>Password</label>
+            <label>
+              Password
+            </label>
 
             <input
               name="password"
@@ -224,24 +334,29 @@ export default function App() {
             >
               Sign in
             </button>
+
           </form>
 
           <div className="security-note">
-            🔒 Secure authentication powered by Supabase
+            🔒 Secure authentication
+            powered by Supabase
           </div>
+
         </div>
       </div>
     );
   }
 
   /*
-   * BUSINESS MANAGEMENT SCREEN
+   * BUSINESS MANAGEMENT
    */
+
   if (selectedBusiness) {
     return (
       <div className="dashboard-page">
 
         <header className="topbar">
+
           <div>
             <div className="brand">
               Jabang<span>Store</span>
@@ -258,6 +373,7 @@ export default function App() {
           >
             Sign out
           </button>
+
         </header>
 
         <main className="admin-content">
@@ -270,7 +386,9 @@ export default function App() {
           </button>
 
           <section className="admin-header">
+
             <div>
+
               <span className="status">
                 ● {selectedBusiness.status}
               </span>
@@ -282,8 +400,16 @@ export default function App() {
               <p>
                 Business management
               </p>
+
             </div>
+
           </section>
+
+          {error && (
+            <div className="error">
+              {error}
+            </div>
+          )}
 
           <section className="business-section">
 
@@ -292,11 +418,6 @@ export default function App() {
               <h2>
                 Business Overview
               </h2>
-
-              <p>
-                Manage this business from the
-                JabangStore platform.
-              </p>
 
               <div className="business-info">
 
@@ -317,16 +438,88 @@ export default function App() {
 
               </div>
 
-              <div className="form-actions">
+            </div>
 
-                <button
-                  className="secondary-button"
-                  onClick={closeBusiness}
-                >
-                  Back
-                </button>
+            <div className="create-business-card">
 
-              </div>
+              <h2>
+                Business Owner
+              </h2>
+
+              <p>
+                Assign an existing JabangStore
+                user as the owner of this
+                business.
+              </p>
+
+              {loadingUsers ? (
+                <p>
+                  Loading users...
+                </p>
+              ) : users.length === 0 ? (
+                <div className="empty-card">
+
+                  <h3>
+                    No users available
+                  </h3>
+
+                  <p>
+                    Create a user account
+                    before assigning an
+                    owner.
+                  </p>
+
+                </div>
+              ) : (
+                <>
+
+                  <label>
+                    Select business owner
+                  </label>
+
+                  <select
+                    value={selectedOwner}
+                    onChange={(e) =>
+                      setSelectedOwner(
+                        e.target.value
+                      )
+                    }
+                  >
+
+                    <option value="">
+                      Select a user
+                    </option>
+
+                    {users.map((user) => (
+                      <option
+                        key={user.id}
+                        value={user.id}
+                      >
+                        {user.email}
+                      </option>
+                    ))}
+
+                  </select>
+
+                  <div className="form-actions">
+
+                    <button
+                      className="primary-button"
+                      onClick={assignOwner}
+                      disabled={
+                        assigningOwner ||
+                        !selectedOwner
+                      }
+                    >
+                      {assigningOwner
+                        ? 'Assigning...'
+                        : 'Assign Owner'}
+                    </button>
+
+                  </div>
+
+                </>
+              )}
 
             </div>
 
@@ -337,9 +530,9 @@ export default function App() {
               </h2>
 
               <p>
-                These modules will be connected to
-                this business as we complete the
-                JabangStore platform.
+                These modules will be connected
+                to this business as we continue
+                building JabangStore.
               </p>
 
               <div className="business-grid">
@@ -355,8 +548,8 @@ export default function App() {
                     </h3>
 
                     <p>
-                      Business performance and
-                      key information.
+                      Business performance
+                      and key information.
                     </p>
                   </div>
                 </article>
@@ -372,7 +565,7 @@ export default function App() {
                     </h3>
 
                     <p>
-                      Products, stock and inventory
+                      Products and stock
                       management.
                     </p>
                   </div>
@@ -389,7 +582,7 @@ export default function App() {
                     </h3>
 
                     <p>
-                      Sales and checkout management.
+                      Sales and checkout.
                     </p>
                   </div>
                 </article>
@@ -405,7 +598,7 @@ export default function App() {
                     </h3>
 
                     <p>
-                      Customer records and activity.
+                      Customer records.
                     </p>
                   </div>
                 </article>
@@ -425,6 +618,7 @@ export default function App() {
   /*
    * SUPER ADMIN DASHBOARD
    */
+
   return (
     <div className="dashboard-page">
 
@@ -464,7 +658,8 @@ export default function App() {
             </h1>
 
             <p>
-              Manage businesses using JabangStore.
+              Manage businesses using
+              JabangStore.
             </p>
 
           </div>
@@ -472,7 +667,9 @@ export default function App() {
           <button
             className="primary-button"
             onClick={() => {
-              setShowCreate(!showCreate);
+              setShowCreate(
+                !showCreate
+              );
               setError('');
             }}
           >
@@ -489,10 +686,13 @@ export default function App() {
             </h2>
 
             <p>
-              New businesses start completely blank.
+              New businesses start
+              completely blank.
             </p>
 
-            <form onSubmit={createBusiness}>
+            <form
+              onSubmit={createBusiness}
+            >
 
               <label>
                 Business name
@@ -503,7 +703,9 @@ export default function App() {
                 placeholder="e.g. Jabang Supermarket"
                 value={businessName}
                 onChange={(e) =>
-                  setBusinessName(e.target.value)
+                  setBusinessName(
+                    e.target.value
+                  )
                 }
               />
 
@@ -555,7 +757,8 @@ export default function App() {
               </h2>
 
               <p>
-                {businesses.length} business
+                {businesses.length}{' '}
+                business
                 {businesses.length === 1
                   ? ''
                   : 'es'}
@@ -566,7 +769,9 @@ export default function App() {
             <button
               className="refresh-button"
               onClick={loadBusinesses}
-              disabled={loadingBusinesses}
+              disabled={
+                loadingBusinesses
+              }
             >
               {loadingBusinesses
                 ? 'Refreshing...'
@@ -597,8 +802,8 @@ export default function App() {
               </h3>
 
               <p>
-                Create your first business to
-                get started.
+                Create your first business
+                to get started.
               </p>
 
               <button
@@ -614,46 +819,50 @@ export default function App() {
           ) : (
             <div className="business-grid">
 
-              {businesses.map((business) => (
-                <article
-                  className="business-card"
-                  key={business.id}
-                >
-
-                  <div className="business-icon">
-                    🏢
-                  </div>
-
-                  <div className="business-info">
-
-                    <h3>
-                      {business.name}
-                    </h3>
-
-                    <span className="business-status">
-                      {business.status}
-                    </span>
-
-                    <p>
-                      Created{' '}
-                      {new Date(
-                        business.created_at
-                      ).toLocaleDateString()}
-                    </p>
-
-                  </div>
-
-                  <button
-                    className="view-button"
-                    onClick={() =>
-                      openBusiness(business)
-                    }
+              {businesses.map(
+                (business) => (
+                  <article
+                    className="business-card"
+                    key={business.id}
                   >
-                    Manage
-                  </button>
 
-                </article>
-              ))}
+                    <div className="business-icon">
+                      🏢
+                    </div>
+
+                    <div className="business-info">
+
+                      <h3>
+                        {business.name}
+                      </h3>
+
+                      <span className="business-status">
+                        {business.status}
+                      </span>
+
+                      <p>
+                        Created{' '}
+                        {new Date(
+                          business.created_at
+                        ).toLocaleDateString()}
+                      </p>
+
+                    </div>
+
+                    <button
+                      className="view-button"
+                      onClick={() =>
+                        openBusiness(
+                          business
+                        )
+                      }
+                    >
+                      Manage
+                    </button>
+
+                  </article>
+                )
+              )}
 
             </div>
           )}
