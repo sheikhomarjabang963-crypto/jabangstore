@@ -2164,10 +2164,18 @@ export default function App() {
                 Jabang<span>Store</span>
               </div>
 
-              <small>
-                Super Admin Console
-              </small>
-            </div>
+                          <small>
+              Super Admin Console
+            </small>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              className="secondary-button"
+              onClick={() => setShowApplications(true)}
+            >
+              Business Applications
+            </button>
 
             <button
               className="logout-button"
@@ -2175,8 +2183,9 @@ export default function App() {
             >
               Sign out
             </button>
+          </div>
 
-          </header>
+        </header>
 
           <main className="admin-content">
 
