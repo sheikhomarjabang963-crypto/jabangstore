@@ -6,6 +6,7 @@ import {
 } from 'react';
 
 import { supabase } from './lib/supabase';
+import BusinessApplications from './pages/BusinessApplication';
 
 type Business = {
   id: string;
@@ -127,6 +128,9 @@ export default function App() {
     useState<Business[]>([]);
 
   const [loadingBusinesses, setLoadingBusinesses] =
+    useState(false);
+
+  const [showApplications, setShowApplications] =
     useState(false);
 
   const [users, setUsers] =
@@ -2111,7 +2115,7 @@ export default function App() {
    * ========================================================
    */
 
-   if (
+  if (
     platformRole ===
     'super_admin'
   ) {
@@ -2153,7 +2157,7 @@ export default function App() {
       );
     }
 
-    if (selectedBusiness) {{
+    if (selectedBusiness) {
       return (
         <div className="dashboard-page">
 
@@ -2164,18 +2168,10 @@ export default function App() {
                 Jabang<span>Store</span>
               </div>
 
-                          <small>
-              Super Admin Console
-            </small>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              className="secondary-button"
-              onClick={() => setShowApplications(true)}
-            >
-              Business Applications
-            </button>
+              <small>
+                Super Admin Console
+              </small>
+            </div>
 
             <button
               className="logout-button"
@@ -2183,9 +2179,8 @@ export default function App() {
             >
               Sign out
             </button>
-          </div>
 
-        </header>
+          </header>
 
           <main className="admin-content">
 
@@ -2379,12 +2374,21 @@ export default function App() {
             </small>
           </div>
 
-          <button
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            Sign out
-          </button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              className="secondary-button"
+              onClick={() => setShowApplications(true)}
+            >
+              Business Applications
+            </button>
+
+            <button
+              className="logout-button"
+              onClick={handleLogout}
+            >
+              Sign out
+            </button>
+          </div>
 
         </header>
 
