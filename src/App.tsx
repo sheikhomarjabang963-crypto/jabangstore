@@ -2111,12 +2111,49 @@ export default function App() {
    * ========================================================
    */
 
-  if (
+   if (
     platformRole ===
     'super_admin'
   ) {
 
-    if (selectedBusiness) {
+    if (showApplications) {
+      return (
+        <div className="dashboard-page">
+
+          <header className="topbar">
+            <div>
+              <div className="brand">
+                Jabang<span>Store</span>
+              </div>
+              <small>
+                Super Admin Console
+              </small>
+            </div>
+
+            <button
+              className="logout-button"
+              onClick={handleLogout}
+            >
+              Sign out
+            </button>
+          </header>
+
+          <main className="admin-content">
+            <button
+              className="secondary-button"
+              onClick={() => setShowApplications(false)}
+            >
+              ← Back to Businesses
+            </button>
+
+            <BusinessApplications />
+          </main>
+
+        </div>
+      );
+    }
+
+    if (selectedBusiness) {{
       return (
         <div className="dashboard-page">
 
