@@ -272,6 +272,24 @@ export default function App() {
   const [branches, setBranches] =
     useState<Branch[]>([]);
 
+  const [showBranchForm, setShowBranchForm] =
+    useState(false);
+
+  const [editingBranchId, setEditingBranchId] =
+    useState<string | null>(null);
+
+  const [branchName, setBranchName] =
+    useState('');
+
+  const [branchAddress, setBranchAddress] =
+    useState('');
+
+  const [branchPhone, setBranchPhone] =
+    useState('');
+
+  const [savingBranch, setSavingBranch] =
+    useState(false);
+
   const [loadingProducts, setLoadingProducts] =
     useState(false);
 
@@ -1112,6 +1130,76 @@ export default function App() {
     }
   }
 
+  function startEditBranch(branch: Branch) {
+    setEditingBranchId(branch.id);
+    setBranchName(branch.name);
+    setBranchAddress(branch.address || '');
+    setBranchPhone(branch.phone || '');
+    setShowBranchForm(true);
+    setError('');
+  }
+
+  function resetBranchForm() {
+    setEditingBranchId(null);
+    setBranchName('');
+    setBranchAddress('');
+    setBranchPhone('');
+    setShowBranchForm(false);
+    setError('');
+  }
+
+  async function submitBranchForm(e: FormEvent) {
+    e.preventDefault();
+
+    if (!ownerBusiness) return;
+
+    const name = branchName.trim();
+
+    if (!name) {
+      setError('Please enter a branch name.');
+      return;
+    }
+
+    setSavingBranch(true);
+    setError('');
+
+    if (editingBranchId) {
+      const { error } = await supabase
+        .from('branches')
+        .update({
+          name,
+          address: branchAddress.trim() || null,
+          phone: branchPhone.trim() || null,
+        })
+        .eq('id', editingBranchId)
+        .eq('business_id', ownerBusiness.id);
+
+      if (error) {
+        setError(error.message);
+      } else {
+        resetBranchForm();
+        await loadBranches(ownerBusiness.id);
+      }
+    } else {
+      const { error } = await supabase.from('branches').insert({
+        business_id: ownerBusiness.id,
+        name,
+        address: branchAddress.trim() || null,
+        phone: branchPhone.trim() || null,
+        is_active: true,
+      });
+
+      if (error) {
+        setError(error.message);
+      } else {
+        resetBranchForm();
+        await loadBranches(ownerBusiness.id);
+      }
+    }
+
+    setSavingBranch(false);
+  }
+
   async function openOwnerPage(
     page: OwnerPage
   ) {
@@ -1185,6 +1273,10 @@ export default function App() {
 
     if (page === 'reports') {
       await loadReportsData(ownerBusiness.id);
+    }
+
+    if (page === 'settings') {
+      await loadBranches(ownerBusiness.id);
     }
   }
 
@@ -5756,10 +5848,6 @@ export default function App() {
   if (
     ownerPage === 'settings'
   ) {
-    const moduleNames = {
-      settings: 'Settings',
-    };
-
     return (
       <div className="dashboard-page">
         <header className="topbar">
@@ -5782,11 +5870,150 @@ export default function App() {
             ← Dashboard
           </button>
 
-          <section className="empty-card">
-            <div className="empty-icon">🚧</div>
-            <h1>{moduleNames[ownerPage]}</h1>
-            <p>This module will be connected in its dedicated implementation stage.</p>
-          </section>
+          <div className="page-header">
+            <div>
+              <h1>Settings</h1>
+              <p>Business information and branches.</p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginTop: 0 }}>Business Information</h3>
+            <div className="table-wrapper">
+              <table className="data-table">
+                <tbody>
+                  <tr>
+                    <th>Business Name</th>
+                    <td>{ownerBusiness.name}</td>
+                  </tr>
+                  <tr>
+                    <th>Status</th>
+                    <td>{ownerBusiness.status}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card">
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '14px',
+              }}
+            >
+              <h3 style={{ margin: 0 }}>Branches</h3>
+              <button
+                className="primary-button"
+                onClick={() => {
+                  if (showBranchForm) {
+                    resetBranchForm();
+                  } else {
+                    setEditingBranchId(null);
+                    setShowBranchForm(true);
+                    setError('');
+                  }
+                }}
+              >
+                {showBranchForm ? 'Cancel' : '+ Add Branch'}
+              </button>
+            </div>
+
+            {showBranchForm && (
+              <form
+                onSubmit={submitBranchForm}
+                style={{ marginBottom: '18px' }}
+              >
+                <label>Branch name *</label>
+                <input
+                  type="text"
+                  value={branchName}
+                  onChange={(e) => setBranchName(e.target.value)}
+                  placeholder="e.g. Serrekunda Branch"
+                  style={{ width: '100%', marginBottom: '10px' }}
+                  required
+                />
+
+                <label>Address</label>
+                <input
+                  type="text"
+                  value={branchAddress}
+                  onChange={(e) => setBranchAddress(e.target.value)}
+                  placeholder="Optional"
+                  style={{ width: '100%', marginBottom: '10px' }}
+                />
+
+                <label>Phone</label>
+                <input
+                  type="text"
+                  value={branchPhone}
+                  onChange={(e) => setBranchPhone(e.target.value)}
+                  placeholder="Optional"
+                  style={{ width: '100%', marginBottom: '10px' }}
+                />
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={resetBranchForm}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={savingBranch}
+                  >
+                    {savingBranch
+                      ? 'Saving...'
+                      : editingBranchId
+                      ? 'Save Changes'
+                      : 'Add Branch'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {branches.length === 0 ? (
+              <p>No branches yet.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Address</th>
+                      <th>Phone</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branches.map((branch) => (
+                      <tr key={branch.id}>
+                        <td>{branch.name}</td>
+                        <td>{branch.address || '—'}</td>
+                        <td>{branch.phone || '—'}</td>
+                        <td>
+                          <button
+                            className="secondary-button"
+                            onClick={() => startEditBranch(branch)}
+                            type="button"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </main>
       </div>
     );
