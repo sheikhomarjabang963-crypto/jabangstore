@@ -570,7 +570,7 @@ export default function App() {
           'business_id, role'
         )
         .eq('user_id', userId)
-        .eq('role', 'owner')
+        .in('role', ['owner', 'manager', 'cashier', 'inventory_staff'])
         .maybeSingle();
 
     if (error) {
