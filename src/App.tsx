@@ -323,6 +323,18 @@ export default function App() {
   const [productLowStock, setProductLowStock] =
     useState('5');
 
+  const [editingProductId, setEditingProductId] =
+    useState<string | null>(null);
+
+  const [editingCategoryId, setEditingCategoryId] =
+    useState<string | null>(null);
+
+  const [savingProduct, setSavingProduct] =
+    useState(false);
+
+  const [savingCategory, setSavingCategory] =
+    useState(false);
+
   /*
    * ========================================================
    * INVENTORY STATE
@@ -1350,6 +1362,239 @@ export default function App() {
     }
 
     setCreatingProduct(false);
+  }
+
+  function startEditProduct(product: Product) {
+    setEditingProductId(product.id);
+    setProductName(product.name);
+    setProductSku(product.sku || '');
+    setProductBarcode(product.barcode || '');
+    setProductDescription(product.description || '');
+    setProductCategory(product.category_id || '');
+    setProductSellingPrice(String(product.selling_price));
+    setProductCostPrice(String(product.cost_price));
+    setProductLowStock(String(product.low_stock_threshold));
+    setShowProductForm(true);
+    setError('');
+  }
+
+  function resetProductForm() {
+    setEditingProductId(null);
+    setProductName('');
+    setProductSku('');
+    setProductBarcode('');
+    setProductDescription('');
+    setProductCategory('');
+    setProductSellingPrice('');
+    setProductCostPrice('');
+    setProductLowStock('5');
+    setShowProductForm(false);
+    setError('');
+  }
+
+  async function updateProduct(e: FormEvent) {
+    e.preventDefault();
+
+    if (!ownerBusiness || !editingProductId) return;
+
+    const name = productName.trim();
+
+    if (!name) {
+      setError('Please enter a product name.');
+      return;
+    }
+
+    const selling = Number(productSellingPrice);
+    const cost = Number(productCostPrice);
+    const threshold = Number(productLowStock);
+
+    if (Number.isNaN(selling) || selling < 0) {
+      setError('Please enter a valid selling price.');
+      return;
+    }
+
+    if (Number.isNaN(cost) || cost < 0) {
+      setError('Please enter a valid cost price.');
+      return;
+    }
+
+    if (Number.isNaN(threshold) || threshold < 0) {
+      setError('Please enter a valid low-stock threshold.');
+      return;
+    }
+
+    setSavingProduct(true);
+    setError('');
+
+    const { error } = await supabase
+      .from('products')
+      .update({
+        name,
+        sku: productSku.trim() || null,
+        barcode: productBarcode.trim() || null,
+        description: productDescription.trim() || null,
+        category_id: productCategory || null,
+        selling_price: selling,
+        cost_price: cost,
+        low_stock_threshold: threshold,
+      })
+      .eq('id', editingProductId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      resetProductForm();
+      await loadProducts(ownerBusiness.id);
+      await loadOwnerDashboard(ownerBusiness.id);
+    }
+
+    setSavingProduct(false);
+  }
+
+  async function submitProductForm(e: FormEvent) {
+    if (editingProductId) {
+      await updateProduct(e);
+    } else {
+      await createProduct(e);
+    }
+  }
+
+  async function deleteProduct(productId: string, productName: string) {
+    if (!ownerBusiness) return;
+
+    const confirmed = window.confirm(
+      `Delete "${productName}"? This cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', productId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      if (error.code === '23503') {
+        const deactivateInstead = window.confirm(
+          `"${productName}" already has sales, purchase, or return history, so it can't be permanently deleted. Deactivate it instead? Deactivated products stay in your records but no longer show up in POS or search.`
+        );
+
+        if (deactivateInstead) {
+          await deactivateProduct(productId);
+        }
+      } else {
+        setError(error.message);
+      }
+    } else {
+      await loadProducts(ownerBusiness.id);
+      await loadOwnerDashboard(ownerBusiness.id);
+    }
+  }
+
+  async function deactivateProduct(productId: string) {
+    if (!ownerBusiness) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('products')
+      .update({ is_active: false })
+      .eq('id', productId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await loadProducts(ownerBusiness.id);
+      await loadOwnerDashboard(ownerBusiness.id);
+    }
+  }
+
+  function startEditCategory(category: Category) {
+    setEditingCategoryId(category.id);
+    setCategoryName(category.name);
+    setCategoryDescription(category.description || '');
+    setShowCategoryForm(true);
+    setError('');
+  }
+
+  function resetCategoryForm() {
+    setEditingCategoryId(null);
+    setCategoryName('');
+    setCategoryDescription('');
+    setShowCategoryForm(false);
+    setError('');
+  }
+
+  async function updateCategory(e: FormEvent) {
+    e.preventDefault();
+
+    if (!ownerBusiness || !editingCategoryId) return;
+
+    const name = categoryName.trim();
+
+    if (!name) {
+      setError('Please enter a category name.');
+      return;
+    }
+
+    setSavingCategory(true);
+    setError('');
+
+    const { error } = await supabase
+      .from('categories')
+      .update({
+        name,
+        description: categoryDescription.trim() || null,
+      })
+      .eq('id', editingCategoryId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      resetCategoryForm();
+      await loadCategories(ownerBusiness.id);
+    }
+
+    setSavingCategory(false);
+  }
+
+  async function submitCategoryForm(e: FormEvent) {
+    if (editingCategoryId) {
+      await updateCategory(e);
+    } else {
+      await createCategory(e);
+    }
+  }
+
+  async function deleteCategory(categoryId: string, categoryName: string) {
+    if (!ownerBusiness) return;
+
+    const confirmed = window.confirm(
+      `Delete the category "${categoryName}"? Products in this category will become uncategorized, not deleted.`
+    );
+
+    if (!confirmed) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('categories')
+      .delete()
+      .eq('id', categoryId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await loadCategories(ownerBusiness.id);
+      await loadProducts(ownerBusiness.id);
+    }
   }
 
   /*
@@ -3451,14 +3696,16 @@ export default function App() {
               <button
                 className="primary-button"
                 onClick={() => {
-                  setShowProductForm(
-                    !showProductForm
-                  );
-
-                  setError('');
+                  if (showProductForm) {
+                    resetProductForm();
+                  } else {
+                    setEditingProductId(null);
+                    setShowProductForm(true);
+                    setError('');
+                  }
                 }}
               >
-                + Add Product
+                {showProductForm ? 'Cancel' : '+ Add Product'}
               </button>
 
             </div>
@@ -3475,17 +3722,18 @@ export default function App() {
             <section className="create-business-card">
 
               <h2>
-                Add New Product
+                {editingProductId ? 'Edit Product' : 'Add New Product'}
               </h2>
 
               <p>
-                Enter the basic information
-                for this product.
+                {editingProductId
+                  ? 'Update the details for this product.'
+                  : 'Enter the basic information for this product.'}
               </p>
 
               <form
                 onSubmit={
-                  createProduct
+                  submitProductForm
                 }
               >
 
@@ -3653,13 +3901,7 @@ export default function App() {
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={() => {
-                      setShowProductForm(
-                        false
-                      );
-
-                      setError('');
-                    }}
+                    onClick={resetProductForm}
                   >
                     Cancel
                   </button>
@@ -3668,10 +3910,14 @@ export default function App() {
                     type="submit"
                     className="primary-button"
                     disabled={
-                      creatingProduct
+                      creatingProduct || savingProduct
                     }
                   >
-                    {creatingProduct
+                    {editingProductId
+                      ? savingProduct
+                        ? 'Saving...'
+                        : 'Save Changes'
+                      : creatingProduct
                       ? 'Creating...'
                       : 'Create Product'}
                   </button>
@@ -3784,7 +4030,15 @@ export default function App() {
                       </th>
 
                       <th>
+                        Stock
+                      </th>
+
+                      <th>
                         Status
+                      </th>
+
+                      <th>
+                        Actions
                       </th>
 
                     </tr>
@@ -3858,6 +4112,27 @@ export default function App() {
                           </td>
 
                           <td>
+                            {(() => {
+                              const stock = getProductStock(product.id);
+                              const isLow =
+                                stock <=
+                                Number(product.low_stock_threshold);
+
+                              return (
+                                <span
+                                  style={
+                                    isLow
+                                      ? { color: 'var(--danger)', fontWeight: 600 }
+                                      : undefined
+                                  }
+                                >
+                                  {stock}
+                                </span>
+                              );
+                            })()}
+                          </td>
+
+                          <td>
 
                             <span className="business-status">
                               {
@@ -3867,6 +4142,27 @@ export default function App() {
                               }
                             </span>
 
+                          </td>
+
+                          <td>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                className="secondary-button"
+                                onClick={() => startEditProduct(product)}
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="secondary-button"
+                                onClick={() =>
+                                  deleteProduct(product.id, product.name)
+                                }
+                                type="button"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </td>
 
                         </tr>
@@ -3901,14 +4197,16 @@ export default function App() {
               <button
                 className="primary-button"
                 onClick={() => {
-                  setShowCategoryForm(
-                    !showCategoryForm
-                  );
-
-                  setError('');
+                  if (showCategoryForm) {
+                    resetCategoryForm();
+                  } else {
+                    setEditingCategoryId(null);
+                    setShowCategoryForm(true);
+                    setError('');
+                  }
                 }}
               >
-                + Add Category
+                {showCategoryForm ? 'Cancel' : '+ Add Category'}
               </button>
 
             </div>
@@ -3917,12 +4215,12 @@ export default function App() {
               <div className="create-business-card">
 
                 <h2>
-                  Create Category
+                  {editingCategoryId ? 'Edit Category' : 'Create Category'}
                 </h2>
 
                 <form
                   onSubmit={
-                    createCategory
+                    submitCategoryForm
                   }
                 >
 
@@ -3964,11 +4262,7 @@ export default function App() {
                     <button
                       type="button"
                       className="secondary-button"
-                      onClick={() =>
-                        setShowCategoryForm(
-                          false
-                        )
-                      }
+                      onClick={resetCategoryForm}
                     >
                       Cancel
                     </button>
@@ -3977,10 +4271,14 @@ export default function App() {
                       type="submit"
                       className="primary-button"
                       disabled={
-                        creatingCategory
+                        creatingCategory || savingCategory
                       }
                     >
-                      {creatingCategory
+                      {editingCategoryId
+                        ? savingCategory
+                          ? 'Saving...'
+                          : 'Save Changes'
+                        : creatingCategory
                         ? 'Creating...'
                         : 'Create Category'}
                     </button>
@@ -4041,6 +4339,25 @@ export default function App() {
                             'No description'
                           }
                         </p>
+
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                          <button
+                            className="secondary-button"
+                            onClick={() => startEditCategory(category)}
+                            type="button"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="secondary-button"
+                            onClick={() =>
+                              deleteCategory(category.id, category.name)
+                            }
+                            type="button"
+                          >
+                            Delete
+                          </button>
+                        </div>
 
                       </div>
 
