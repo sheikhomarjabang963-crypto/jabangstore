@@ -108,11 +108,85 @@ type POSReceipt = {
   change_amount: number;
 };
 
+type Customer = {
+  id: string;
+  business_id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  credit_limit: number;
+  current_balance: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+type PurchaseCartItem = {
+  product_id: string;
+  name: string;
+  quantity: number;
+  unitCost: number;
+};
+
+type PurchaseRecord = {
+  id: string;
+  purchase_number: string;
+  subtotal: number;
+  discount: number;
+  total: number;
+  payment_status: string;
+  status: string;
+  created_at: string;
+};
+
+type SaleForReturn = {
+  id: string;
+  sale_number: string;
+  total: number;
+  created_at: string;
+};
+
+type ReturnableItem = {
+  product_id: string;
+  name: string;
+  sold_quantity: number;
+  already_returned: number;
+  unit_price: number;
+  returnQuantity: number;
+};
+
+type ReturnRecord = {
+  id: string;
+  return_number: string;
+  total_amount: number;
+  reason: string | null;
+  status: string;
+  created_at: string;
+};
+
+type TopProduct = {
+  product_id: string;
+  name: string;
+  quantity_sold: number;
+  revenue: number;
+};
+
+type ReportsData = {
+  todaySalesCount: number;
+  todayRevenue: number;
+  allTimeSalesCount: number;
+  allTimeRevenue: number;
+  totalPurchasesValue: number;
+  topProducts: TopProduct[];
+};
+
 type OwnerPage =
   | 'dashboard'
   | 'products'
   | 'inventory'
   | 'pos'
+  | 'purchases'
+  | 'returns'
   | 'customers'
   | 'reports'
   | 'settings';
@@ -123,6 +197,9 @@ export default function App() {
 
   const [platformRole, setPlatformRole] =
     useState('user');
+
+  const [superAdminStoreView, setSuperAdminStoreView] =
+    useState(false);
 
   const [businesses, setBusinesses] =
     useState<Business[]>([]);
@@ -335,6 +412,102 @@ export default function App() {
 
   const [posReceipt, setPosReceipt] =
     useState<POSReceipt | null>(null);
+
+  /*
+   * ========================================================
+   * CUSTOMERS STATE
+   * ========================================================
+   */
+
+  const [customers, setCustomers] =
+    useState<Customer[]>([]);
+
+  const [loadingCustomers, setLoadingCustomers] =
+    useState(false);
+
+  const [newCustomerName, setNewCustomerName] =
+    useState('');
+
+  const [newCustomerPhone, setNewCustomerPhone] =
+    useState('');
+
+  const [newCustomerEmail, setNewCustomerEmail] =
+    useState('');
+
+  const [newCustomerAddress, setNewCustomerAddress] =
+    useState('');
+
+  const [creatingCustomer, setCreatingCustomer] =
+    useState(false);
+
+  /*
+   * ========================================================
+   * PURCHASES STATE
+   * ========================================================
+   */
+
+  const [purchases, setPurchases] =
+    useState<PurchaseRecord[]>([]);
+
+  const [loadingPurchases, setLoadingPurchases] =
+    useState(false);
+
+  const [purchaseCart, setPurchaseCart] =
+    useState<PurchaseCartItem[]>([]);
+
+  const [purchaseProductId, setPurchaseProductId] =
+    useState('');
+
+  const [purchaseQuantity, setPurchaseQuantity] =
+    useState('1');
+
+  const [purchaseUnitCost, setPurchaseUnitCost] =
+    useState('0');
+
+  const [purchaseDiscount, setPurchaseDiscount] =
+    useState('0');
+
+  const [creatingPurchase, setCreatingPurchase] =
+    useState(false);
+
+  /*
+   * ========================================================
+   * RETURNS STATE
+   * ========================================================
+   */
+
+  const [returns, setReturns] =
+    useState<ReturnRecord[]>([]);
+
+  const [loadingReturns, setLoadingReturns] =
+    useState(false);
+
+  const [returnableSales, setReturnableSales] =
+    useState<SaleForReturn[]>([]);
+
+  const [selectedSaleForReturn, setSelectedSaleForReturn] =
+    useState('');
+
+  const [returnableItems, setReturnableItems] =
+    useState<ReturnableItem[]>([]);
+
+  const [returnReason, setReturnReason] =
+    useState('');
+
+  const [creatingReturn, setCreatingReturn] =
+    useState(false);
+
+  /*
+   * ========================================================
+   * REPORTS STATE
+   * ========================================================
+   */
+
+  const [reportsData, setReportsData] =
+    useState<ReportsData | null>(null);
+
+  const [loadingReports, setLoadingReports] =
+    useState(false);
 
   /*
    * ========================================================
@@ -613,6 +786,21 @@ export default function App() {
     }
 
     setOwnerLoading(false);
+  }
+
+  async function openStoreAsSuperAdmin() {
+    if (!session?.user?.id) return;
+
+    setOwnerLoading(true);
+    setSuperAdminStoreView(true);
+    setOwnerPage('dashboard');
+
+    await loadOwnerBusiness(session.user.id);
+  }
+
+  function backToAdminPanel() {
+    setSuperAdminStoreView(false);
+    setOwnerPage('dashboard');
   }
 
   async function loadOwnerDashboard(
@@ -962,6 +1150,29 @@ export default function App() {
 
     if (page === 'pos') {
       await loadPOSData(ownerBusiness.id);
+    }
+
+    if (page === 'purchases') {
+      await Promise.all([
+        loadProducts(ownerBusiness.id),
+        loadBranches(ownerBusiness.id),
+        loadPurchases(ownerBusiness.id),
+      ]);
+    }
+
+    if (page === 'returns') {
+      await Promise.all([
+        loadReturnableSales(ownerBusiness.id),
+        loadReturnsList(ownerBusiness.id),
+      ]);
+    }
+
+    if (page === 'customers') {
+      await loadCustomers(ownerBusiness.id);
+    }
+
+    if (page === 'reports') {
+      await loadReportsData(ownerBusiness.id);
     }
   }
 
@@ -1783,6 +1994,439 @@ export default function App() {
 
   /*
    * ========================================================
+   * CUSTOMERS
+   * ========================================================
+   */
+
+  async function loadCustomers(businessId: string) {
+    setLoadingCustomers(true);
+    setError('');
+
+    const { data, error } = await supabase
+      .from('customers')
+      .select(
+        'id, business_id, name, phone, email, address, credit_limit, current_balance, is_active, created_at'
+      )
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setCustomers((data || []) as Customer[]);
+    }
+
+    setLoadingCustomers(false);
+  }
+
+  async function createCustomer(e: FormEvent) {
+    e.preventDefault();
+
+    if (!ownerBusiness) return;
+
+    const name = newCustomerName.trim();
+
+    if (!name) {
+      setError('Please enter a customer name.');
+      return;
+    }
+
+    setCreatingCustomer(true);
+    setError('');
+
+    const { error } = await supabase.from('customers').insert({
+      business_id: ownerBusiness.id,
+      name,
+      phone: newCustomerPhone.trim() || null,
+      email: newCustomerEmail.trim() || null,
+      address: newCustomerAddress.trim() || null,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setNewCustomerName('');
+      setNewCustomerPhone('');
+      setNewCustomerEmail('');
+      setNewCustomerAddress('');
+      await loadCustomers(ownerBusiness.id);
+    }
+
+    setCreatingCustomer(false);
+  }
+
+  /*
+   * ========================================================
+   * PURCHASES (no supplier field \u2014 by design)
+   * ========================================================
+   */
+
+  async function loadPurchases(businessId: string) {
+    setLoadingPurchases(true);
+    setError('');
+
+    const { data, error } = await supabase
+      .from('purchases')
+      .select(
+        'id, purchase_number, subtotal, discount, total, payment_status, status, created_at'
+      )
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setPurchases((data || []) as PurchaseRecord[]);
+    }
+
+    setLoadingPurchases(false);
+  }
+
+  function addPurchaseCartItem() {
+    setError('');
+
+    if (!purchaseProductId) {
+      setError('Please select a product.');
+      return;
+    }
+
+    const quantity = Number(purchaseQuantity || 0);
+    const unitCost = Number(purchaseUnitCost || 0);
+
+    if (quantity <= 0) {
+      setError('Quantity must be greater than zero.');
+      return;
+    }
+
+    if (unitCost < 0) {
+      setError('Unit cost cannot be negative.');
+      return;
+    }
+
+    const product = products.find((p) => p.id === purchaseProductId);
+
+    if (!product) return;
+
+    setPurchaseCart((prev) => [
+      ...prev,
+      {
+        product_id: product.id,
+        name: product.name,
+        quantity,
+        unitCost,
+      },
+    ]);
+
+    setPurchaseProductId('');
+    setPurchaseQuantity('1');
+    setPurchaseUnitCost('0');
+  }
+
+  function removePurchaseCartItem(productId: string) {
+    setPurchaseCart((prev) =>
+      prev.filter((item) => item.product_id !== productId)
+    );
+  }
+
+  const purchaseSubtotal = useMemo(
+    () =>
+      purchaseCart.reduce(
+        (sum, item) => sum + item.quantity * item.unitCost,
+        0
+      ),
+    [purchaseCart]
+  );
+
+  async function submitPurchase() {
+    if (!ownerBusiness) return;
+
+    if (!selectedBranch) {
+      setError('Please select a branch before recording the purchase.');
+      return;
+    }
+
+    if (purchaseCart.length === 0) {
+      setError('Add at least one item to the purchase.');
+      return;
+    }
+
+    setCreatingPurchase(true);
+    setError('');
+
+    const items = purchaseCart.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_cost: item.unitCost,
+      discount: 0,
+    }));
+
+    const { error } = await supabase.rpc('create_purchase', {
+      target_business_id: ownerBusiness.id,
+      target_branch_id: selectedBranch,
+      target_discount: Number(purchaseDiscount || 0),
+      target_items: items,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setPurchaseCart([]);
+      setPurchaseDiscount('0');
+      await Promise.all([
+        loadPurchases(ownerBusiness.id),
+        loadInventory(ownerBusiness.id),
+      ]);
+    }
+
+    setCreatingPurchase(false);
+  }
+
+  /*
+   * ========================================================
+   * RETURNS / REFUNDS
+   * ========================================================
+   */
+
+  async function loadReturnableSales(businessId: string) {
+    const { data, error } = await supabase
+      .from('sales')
+      .select('id, sale_number, total, created_at')
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setReturnableSales((data || []) as SaleForReturn[]);
+    }
+  }
+
+  async function loadReturnsList(businessId: string) {
+    setLoadingReturns(true);
+    setError('');
+
+    const { data, error } = await supabase
+      .from('returns')
+      .select(
+        'id, return_number, total_amount, reason, status, created_at'
+      )
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setReturns((data || []) as ReturnRecord[]);
+    }
+
+    setLoadingReturns(false);
+  }
+
+  async function selectSaleForReturn(saleId: string) {
+    setSelectedSaleForReturn(saleId);
+    setReturnableItems([]);
+    setError('');
+
+    if (!saleId) return;
+
+    const [itemsResult, returnedResult] = await Promise.all([
+      supabase
+        .from('sale_items')
+        .select('product_id, quantity, unit_price, products(name)')
+        .eq('sale_id', saleId),
+      supabase
+        .from('return_items')
+        .select('product_id, quantity, returns!inner(sale_id)')
+        .eq('returns.sale_id', saleId),
+    ]);
+
+    if (itemsResult.error) {
+      setError(itemsResult.error.message);
+      return;
+    }
+
+    const returnedByProduct: Record<string, number> = {};
+
+    (returnedResult.data || []).forEach((row: any) => {
+      returnedByProduct[row.product_id] =
+        (returnedByProduct[row.product_id] || 0) +
+        Number(row.quantity || 0);
+    });
+
+    const items: ReturnableItem[] = (itemsResult.data || []).map(
+      (row: any) => {
+        const alreadyReturned =
+          returnedByProduct[row.product_id] || 0;
+
+        return {
+          product_id: row.product_id,
+          name: row.products?.name || 'Unknown product',
+          sold_quantity: Number(row.quantity || 0),
+          already_returned: alreadyReturned,
+          unit_price: Number(row.unit_price || 0),
+          returnQuantity: 0,
+        };
+      }
+    );
+
+    setReturnableItems(items);
+  }
+
+  function updateReturnQuantity(productId: string, quantity: number) {
+    setReturnableItems((prev) =>
+      prev.map((item) =>
+        item.product_id === productId
+          ? { ...item, returnQuantity: quantity }
+          : item
+      )
+    );
+  }
+
+  async function submitReturn() {
+    if (!ownerBusiness) return;
+
+    if (!selectedSaleForReturn) {
+      setError('Please select the original sale first.');
+      return;
+    }
+
+    const itemsToReturn = returnableItems.filter(
+      (item) => item.returnQuantity > 0
+    );
+
+    if (itemsToReturn.length === 0) {
+      setError('Enter a quantity for at least one item to return.');
+      return;
+    }
+
+    setCreatingReturn(true);
+    setError('');
+
+    const items = itemsToReturn.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.returnQuantity,
+    }));
+
+    const { error } = await supabase.rpc('create_return', {
+      target_business_id: ownerBusiness.id,
+      target_sale_id: selectedSaleForReturn,
+      target_customer_id: null,
+      target_reason: returnReason.trim() || null,
+      target_items: items,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setSelectedSaleForReturn('');
+      setReturnableItems([]);
+      setReturnReason('');
+      await Promise.all([
+        loadReturnsList(ownerBusiness.id),
+        loadInventory(ownerBusiness.id),
+      ]);
+    }
+
+    setCreatingReturn(false);
+  }
+
+  /*
+   * ========================================================
+   * REPORTS
+   * ========================================================
+   */
+
+  async function loadReportsData(businessId: string) {
+    setLoadingReports(true);
+    setError('');
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [
+      allSalesResult,
+      todaySalesResult,
+      purchasesResult,
+      saleItemsResult,
+    ] = await Promise.all([
+      supabase
+        .from('sales')
+        .select('total', { count: 'exact' })
+        .eq('business_id', businessId),
+      supabase
+        .from('sales')
+        .select('total', { count: 'exact' })
+        .eq('business_id', businessId)
+        .gte('created_at', startOfToday.toISOString()),
+      supabase
+        .from('purchases')
+        .select('total')
+        .eq('business_id', businessId),
+      supabase
+        .from('sale_items')
+        .select('product_id, quantity, line_total, products(name)'),
+    ]);
+
+    if (allSalesResult.error) {
+      setError(allSalesResult.error.message);
+      setLoadingReports(false);
+      return;
+    }
+
+    const allTimeRevenue = (allSalesResult.data || []).reduce(
+      (sum: number, row: any) => sum + Number(row.total || 0),
+      0
+    );
+
+    const todayRevenue = (todaySalesResult.data || []).reduce(
+      (sum: number, row: any) => sum + Number(row.total || 0),
+      0
+    );
+
+    const totalPurchasesValue = (purchasesResult.data || []).reduce(
+      (sum: number, row: any) => sum + Number(row.total || 0),
+      0
+    );
+
+    const productTotals: Record<string, TopProduct> = {};
+
+    (saleItemsResult.data || []).forEach((row: any) => {
+      const id = row.product_id;
+
+      if (!productTotals[id]) {
+        productTotals[id] = {
+          product_id: id,
+          name: row.products?.name || 'Unknown product',
+          quantity_sold: 0,
+          revenue: 0,
+        };
+      }
+
+      productTotals[id].quantity_sold += Number(row.quantity || 0);
+      productTotals[id].revenue += Number(row.line_total || 0);
+    });
+
+    const topProducts = Object.values(productTotals)
+      .sort((a, b) => b.quantity_sold - a.quantity_sold)
+      .slice(0, 5);
+
+    setReportsData({
+      todaySalesCount: todaySalesResult.count || 0,
+      todayRevenue,
+      allTimeSalesCount: allSalesResult.count || 0,
+      allTimeRevenue,
+      totalPurchasesValue,
+      topProducts,
+    });
+
+    setLoadingReports(false);
+  }
+
+  /*
+   * ========================================================
    * HELPERS
    * ========================================================
    */
@@ -2117,7 +2761,8 @@ export default function App() {
 
   if (
     platformRole ===
-    'super_admin'
+    'super_admin' &&
+    !superAdminStoreView
   ) {
 
     if (showApplications) {
@@ -2375,6 +3020,13 @@ export default function App() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              className="secondary-button"
+              onClick={openStoreAsSuperAdmin}
+            >
+              Operate Store
+            </button>
+
             <button
               className="secondary-button"
               onClick={() => setShowApplications(true)}
@@ -2701,6 +3353,16 @@ export default function App() {
             <div className="error">
               {error}
             </div>
+          )}
+
+          {superAdminStoreView && (
+            <button
+              className="login-button"
+              onClick={backToAdminPanel}
+              style={{ marginBottom: '10px' }}
+            >
+              ← Back to Admin Panel
+            </button>
           )}
 
           <button
@@ -4775,13 +5437,9 @@ export default function App() {
    */
 
   if (
-    ownerPage === 'customers' ||
-    ownerPage === 'reports' ||
     ownerPage === 'settings'
   ) {
     const moduleNames = {
-      customers: 'Customers',
-      reports: 'Reports',
       settings: 'Settings',
     };
 
@@ -4819,6 +5477,576 @@ export default function App() {
 
   /*
    * ========================================================
+   * CUSTOMERS PAGE
+   * ========================================================
+   */
+
+  if (ownerPage === 'customers') {
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('dashboard')}
+          >
+            ← Dashboard
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Customers</h1>
+              <p>Keep track of who buys from you.</p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginTop: 0 }}>Add a customer</h3>
+            <form onSubmit={createCustomer}>
+              <input
+                type="text"
+                placeholder="Full name"
+                value={newCustomerName}
+                onChange={(e) => setNewCustomerName(e.target.value)}
+                style={{ marginBottom: '10px', width: '100%' }}
+                required
+              />
+              <input
+                type="text"
+                placeholder="Phone (optional)"
+                value={newCustomerPhone}
+                onChange={(e) => setNewCustomerPhone(e.target.value)}
+                style={{ marginBottom: '10px', width: '100%' }}
+              />
+              <input
+                type="email"
+                placeholder="Email (optional)"
+                value={newCustomerEmail}
+                onChange={(e) => setNewCustomerEmail(e.target.value)}
+                style={{ marginBottom: '10px', width: '100%' }}
+              />
+              <input
+                type="text"
+                placeholder="Address (optional)"
+                value={newCustomerAddress}
+                onChange={(e) => setNewCustomerAddress(e.target.value)}
+                style={{ marginBottom: '10px', width: '100%' }}
+              />
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={creatingCustomer}
+              >
+                {creatingCustomer ? 'Adding...' : 'Add Customer'}
+              </button>
+            </form>
+          </div>
+
+          <div className="card">
+            {loadingCustomers ? (
+              <p>Loading customers...</p>
+            ) : customers.length === 0 ? (
+              <p>No customers yet.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Phone</th>
+                      <th>Email</th>
+                      <th>Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customers.map((customer) => (
+                      <tr key={customer.id}>
+                        <td>{customer.name}</td>
+                        <td>{customer.phone || '—'}</td>
+                        <td>{customer.email || '—'}</td>
+                        <td>GMD {formatGMD(customer.current_balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * PURCHASES PAGE (no supplier field, by design)
+   * ========================================================
+   */
+
+  if (ownerPage === 'purchases') {
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('dashboard')}
+          >
+            ← Dashboard
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Purchases</h1>
+              <p>Record goods bought in for the shop.</p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginTop: 0 }}>Record a new purchase</h3>
+
+            <label>Branch</label>
+            <select
+              value={selectedBranch}
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              style={{ width: '100%', marginBottom: '14px' }}
+            >
+              <option value="">Select branch</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '10px',
+                flexWrap: 'wrap',
+                marginBottom: '10px',
+              }}
+            >
+              <select
+                value={purchaseProductId}
+                onChange={(e) => setPurchaseProductId(e.target.value)}
+                style={{ flex: 2 }}
+              >
+                <option value="">Select product</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                placeholder="Qty"
+                value={purchaseQuantity}
+                onChange={(e) => setPurchaseQuantity(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <input
+                type="number"
+                min="0"
+                placeholder="Unit cost"
+                value={purchaseUnitCost}
+                onChange={(e) => setPurchaseUnitCost(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button
+                className="secondary-button"
+                onClick={addPurchaseCartItem}
+                type="button"
+              >
+                + Add Item
+              </button>
+            </div>
+
+            {purchaseCart.length > 0 && (
+              <div className="table-wrapper" style={{ marginBottom: '14px' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Qty</th>
+                      <th>Unit Cost</th>
+                      <th>Line Total</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchaseCart.map((item) => (
+                      <tr key={item.product_id}>
+                        <td>{item.name}</td>
+                        <td>{item.quantity}</td>
+                        <td>GMD {formatGMD(item.unitCost)}</td>
+                        <td>GMD {formatGMD(item.quantity * item.unitCost)}</td>
+                        <td>
+                          <button
+                            className="secondary-button"
+                            onClick={() => removePurchaseCartItem(item.product_id)}
+                            type="button"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <label>Overall discount (GMD)</label>
+            <input
+              type="number"
+              min="0"
+              value={purchaseDiscount}
+              onChange={(e) => setPurchaseDiscount(e.target.value)}
+              style={{ width: '100%', marginBottom: '14px' }}
+            />
+
+            <p>
+              <strong>Subtotal: GMD {formatGMD(purchaseSubtotal)}</strong>
+            </p>
+
+            <button
+              className="primary-button"
+              onClick={submitPurchase}
+              disabled={creatingPurchase || purchaseCart.length === 0}
+            >
+              {creatingPurchase ? 'Recording...' : 'Record Purchase'}
+            </button>
+          </div>
+
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Recent purchases</h3>
+            {loadingPurchases ? (
+              <p>Loading...</p>
+            ) : purchases.length === 0 ? (
+              <p>No purchases recorded yet.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Purchase #</th>
+                      <th>Date</th>
+                      <th>Total</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchases.map((purchase) => (
+                      <tr key={purchase.id}>
+                        <td>{purchase.purchase_number}</td>
+                        <td>
+                          {new Date(purchase.created_at).toLocaleDateString()}
+                        </td>
+                        <td>GMD {formatGMD(purchase.total)}</td>
+                        <td>{purchase.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * RETURNS / REFUNDS PAGE
+   * ========================================================
+   */
+
+  if (ownerPage === 'returns') {
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('dashboard')}
+          >
+            ← Dashboard
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Returns &amp; Refunds</h1>
+              <p>Process a return against a past sale.</p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginTop: 0 }}>Process a return</h3>
+
+            <label>Original sale</label>
+            <select
+              value={selectedSaleForReturn}
+              onChange={(e) => selectSaleForReturn(e.target.value)}
+              style={{ width: '100%', marginBottom: '14px' }}
+            >
+              <option value="">Select a sale</option>
+              {returnableSales.map((sale) => (
+                <option key={sale.id} value={sale.id}>
+                  {sale.sale_number} — GMD {formatGMD(sale.total)} —{' '}
+                  {new Date(sale.created_at).toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+
+            {returnableItems.length > 0 && (
+              <div className="table-wrapper" style={{ marginBottom: '14px' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Sold</th>
+                      <th>Already Returned</th>
+                      <th>Return Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {returnableItems.map((item) => (
+                      <tr key={item.product_id}>
+                        <td>{item.name}</td>
+                        <td>{item.sold_quantity}</td>
+                        <td>{item.already_returned}</td>
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            max={item.sold_quantity - item.already_returned}
+                            value={item.returnQuantity}
+                            onChange={(e) =>
+                              updateReturnQuantity(
+                                item.product_id,
+                                Number(e.target.value || 0)
+                              )
+                            }
+                            style={{ width: '80px' }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {selectedSaleForReturn && (
+              <>
+                <label>Reason (optional)</label>
+                <textarea
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                  style={{ width: '100%', marginBottom: '14px' }}
+                  rows={2}
+                />
+
+                <button
+                  className="primary-button"
+                  onClick={submitReturn}
+                  disabled={creatingReturn}
+                >
+                  {creatingReturn ? 'Processing...' : 'Process Return'}
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Recent returns</h3>
+            {loadingReturns ? (
+              <p>Loading...</p>
+            ) : returns.length === 0 ? (
+              <p>No returns recorded yet.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Return #</th>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {returns.map((ret) => (
+                      <tr key={ret.id}>
+                        <td>{ret.return_number}</td>
+                        <td>{new Date(ret.created_at).toLocaleDateString()}</td>
+                        <td>GMD {formatGMD(ret.total_amount)}</td>
+                        <td>{ret.reason || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * REPORTS PAGE
+   * ========================================================
+   */
+
+  if (ownerPage === 'reports') {
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('dashboard')}
+          >
+            ← Dashboard
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Reports</h1>
+              <p>A snapshot of how the business is doing.</p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          {loadingReports || !reportsData ? (
+            <p>Loading report...</p>
+          ) : (
+            <>
+              <div className="business-grid" style={{ marginBottom: '20px' }}>
+                <article className="business-card">
+                  <div className="business-icon">💰</div>
+                  <div className="business-info">
+                    <h3>Today's Sales</h3>
+                    <p>
+                      GMD {formatGMD(reportsData.todayRevenue)} (
+                      {reportsData.todaySalesCount} sales)
+                    </p>
+                  </div>
+                </article>
+
+                <article className="business-card">
+                  <div className="business-icon">🧾</div>
+                  <div className="business-info">
+                    <h3>All-Time Sales</h3>
+                    <p>
+                      GMD {formatGMD(reportsData.allTimeRevenue)} (
+                      {reportsData.allTimeSalesCount} sales)
+                    </p>
+                  </div>
+                </article>
+
+                <article className="business-card">
+                  <div className="business-icon">🚚</div>
+                  <div className="business-info">
+                    <h3>Total Purchases</h3>
+                    <p>GMD {formatGMD(reportsData.totalPurchasesValue)}</p>
+                  </div>
+                </article>
+              </div>
+
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Top selling products</h3>
+                {reportsData.topProducts.length === 0 ? (
+                  <p>No sales yet.</p>
+                ) : (
+                  <div className="table-wrapper">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Product</th>
+                          <th>Units Sold</th>
+                          <th>Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportsData.topProducts.map((product) => (
+                          <tr key={product.product_id}>
+                            <td>{product.name}</td>
+                            <td>{product.quantity_sold}</td>
+                            <td>GMD {formatGMD(product.revenue)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
    * OWNER DASHBOARD
    * ========================================================
    */
@@ -4842,14 +6070,25 @@ export default function App() {
 
         </div>
 
-        <button
-          className="logout-button"
-          onClick={
-            handleLogout
-          }
-        >
-          Sign out
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          {superAdminStoreView && (
+            <button
+              className="secondary-button"
+              onClick={backToAdminPanel}
+            >
+              ← Back to Admin Panel
+            </button>
+          )}
+
+          <button
+            className="logout-button"
+            onClick={
+              handleLogout
+            }
+          >
+            Sign out
+          </button>
+        </div>
 
       </header>
 
@@ -4988,6 +6227,60 @@ export default function App() {
 
               <p>
                 Sales and checkout.
+              </p>
+
+            </div>
+
+          </button>
+
+          <button
+            className="business-card"
+            onClick={() =>
+              openOwnerPage(
+                'purchases'
+              )
+            }
+          >
+
+            <div className="business-icon">
+              🚚
+            </div>
+
+            <div className="business-info">
+
+              <h3>
+                Purchases
+              </h3>
+
+              <p>
+                Record goods bought in.
+              </p>
+
+            </div>
+
+          </button>
+
+          <button
+            className="business-card"
+            onClick={() =>
+              openOwnerPage(
+                'returns'
+              )
+            }
+          >
+
+            <div className="business-icon">
+              ↩️
+            </div>
+
+            <div className="business-info">
+
+              <h3>
+                Returns &amp; Refunds
+              </h3>
+
+              <p>
+                Process a customer return.
               </p>
 
             </div>
