@@ -281,6 +281,9 @@ export default function App() {
   const [assigningOwner, setAssigningOwner] =
     useState(false);
 
+  const [changingBusinessStatus, setChangingBusinessStatus] =
+    useState(false);
+
   const [ownerBusiness, setOwnerBusiness] =
     useState<Business | null>(null);
 
@@ -821,6 +824,35 @@ export default function App() {
     setError('');
   }
 
+  async function changeBusinessStatus(newStatus: 'active' | 'suspended') {
+    if (!selectedBusiness) return;
+
+    if (newStatus === 'suspended') {
+      const confirmed = window.confirm(
+        `Suspend "${selectedBusiness.name}"? Users at this business will not be able to log in to their store until it is reactivated.`
+      );
+
+      if (!confirmed) return;
+    }
+
+    setChangingBusinessStatus(true);
+    setError('');
+
+    const { error } = await supabase.rpc('set_business_status', {
+      target_business_id: selectedBusiness.id,
+      target_status: newStatus,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setSelectedBusiness({ ...selectedBusiness, status: newStatus });
+      await loadBusinesses();
+    }
+
+    setChangingBusinessStatus(false);
+  }
+
   /*
    * ========================================================
    * OWNER BUSINESS
@@ -875,6 +907,11 @@ export default function App() {
       );
     } else {
       setOwnerBusiness(business);
+
+      if (business?.status === 'suspended') {
+        setOwnerLoading(false);
+        return;
+      }
 
       await loadOwnerDashboard(
         data.business_id
@@ -3629,6 +3666,26 @@ export default function App() {
                     ).toLocaleDateString()}
                   </p>
 
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                    {selectedBusiness.status === 'suspended' ? (
+                      <button
+                        className="primary-button"
+                        onClick={() => changeBusinessStatus('active')}
+                        disabled={changingBusinessStatus}
+                      >
+                        {changingBusinessStatus ? 'Reactivating...' : 'Reactivate Business'}
+                      </button>
+                    ) : (
+                      <button
+                        className="secondary-button"
+                        onClick={() => changeBusinessStatus('suspended')}
+                        disabled={changingBusinessStatus}
+                      >
+                        {changingBusinessStatus ? 'Suspending...' : 'Suspend Business'}
+                      </button>
+                    )}
+                  </div>
+
                 </div>
 
               </div>
@@ -4054,6 +4111,58 @@ export default function App() {
           <p>
             Loading your business...
           </p>
+
+        </div>
+
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * BUSINESS SUSPENDED
+   * ========================================================
+   */
+
+  if (ownerBusiness && ownerBusiness.status === 'suspended') {
+    return (
+      <div className="auth-page">
+
+        <div className="auth-card">
+
+          <div className="brand">
+            Jabang<span>Store</span>
+          </div>
+
+          <h2>Account Suspended</h2>
+
+          <p>
+            {ownerBusiness.name} has been suspended and is not currently
+            accessible. Please contact the platform administrator for help.
+          </p>
+
+          {error && (
+            <div className="error">
+              {error}
+            </div>
+          )}
+
+          {superAdminStoreView && (
+            <button
+              className="login-button"
+              onClick={backToAdminPanel}
+              style={{ marginBottom: '10px' }}
+            >
+              ← Back to Admin Panel
+            </button>
+          )}
+
+          <button
+            className="login-button"
+            onClick={handleLogout}
+          >
+            Sign out
+          </button>
 
         </div>
 
