@@ -150,6 +150,16 @@ type SaleHistoryRow = {
   customer_id: string | null;
 };
 
+type AuditLogRow = {
+  id: string;
+  action: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  details: Record<string, any> | null;
+  created_at: string;
+  user_id: string | null;
+};
+
 type Customer = {
   id: string;
   business_id: string;
@@ -232,7 +242,8 @@ type OwnerPage =
   | 'returns'
   | 'customers'
   | 'reports'
-  | 'settings';
+  | 'settings'
+  | 'audit-log';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -512,6 +523,12 @@ export default function App() {
 
   const [voidingSaleId, setVoidingSaleId] =
     useState<string | null>(null);
+
+  const [auditLog, setAuditLog] =
+    useState<AuditLogRow[]>([]);
+
+  const [loadingAuditLog, setLoadingAuditLog] =
+    useState(false);
 
   /*
    * ========================================================
@@ -1403,6 +1420,10 @@ export default function App() {
     if (page === 'settings') {
       await loadBranches(ownerBusiness.id);
     }
+
+    if (page === 'audit-log') {
+      await loadAuditLog(ownerBusiness.id);
+    }
   }
 
   async function createCategory(
@@ -1699,6 +1720,45 @@ export default function App() {
     setError('');
   }
 
+  async function logAudit(
+    action: string,
+    entityType: string,
+    entityId: string | null,
+    details: Record<string, any> = {}
+  ) {
+    if (!ownerBusiness) return;
+
+    // Best-effort logging: never block or surface errors from this to the user.
+    await supabase.from('audit_logs').insert({
+      business_id: ownerBusiness.id,
+      user_id: session?.user?.id || null,
+      action,
+      entity_type: entityType,
+      entity_id: entityId,
+      details,
+    });
+  }
+
+  async function loadAuditLog(businessId: string) {
+    setLoadingAuditLog(true);
+    setError('');
+
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('id, action, entity_type, entity_id, details, created_at, user_id')
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setAuditLog((data || []) as AuditLogRow[]);
+    }
+
+    setLoadingAuditLog(false);
+  }
+
   async function updateProduct(e: FormEvent) {
     e.preventDefault();
 
@@ -1751,6 +1811,7 @@ export default function App() {
     if (error) {
       setError(error.message);
     } else {
+      await logAudit('update_product', 'product', editingProductId, { name });
       resetProductForm();
       await loadProducts(ownerBusiness.id);
       await loadOwnerDashboard(ownerBusiness.id);
@@ -1797,6 +1858,7 @@ export default function App() {
         setError(error.message);
       }
     } else {
+      await logAudit('delete_product', 'product', productId, { name: productName });
       await loadProducts(ownerBusiness.id);
       await loadOwnerDashboard(ownerBusiness.id);
     }
@@ -1816,6 +1878,7 @@ export default function App() {
     if (error) {
       setError(error.message);
     } else {
+      await logAudit('deactivate_product', 'product', productId, {});
       await loadProducts(ownerBusiness.id);
       await loadOwnerDashboard(ownerBusiness.id);
     }
@@ -1864,6 +1927,7 @@ export default function App() {
     if (error) {
       setError(error.message);
     } else {
+      await logAudit('update_category', 'category', editingCategoryId, { name });
       resetCategoryForm();
       await loadCategories(ownerBusiness.id);
     }
@@ -1899,6 +1963,7 @@ export default function App() {
     if (error) {
       setError(error.message);
     } else {
+      await logAudit('delete_category', 'category', categoryId, { name: categoryName });
       await loadCategories(ownerBusiness.id);
       await loadProducts(ownerBusiness.id);
     }
@@ -6799,6 +6864,119 @@ export default function App() {
                           >
                             Edit
                           </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ marginTop: '20px' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0 }}>Activity Log</h3>
+                <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>
+                  A record of key actions like edits, deletions, and voided sales.
+                </p>
+              </div>
+              <button
+                className="secondary-button"
+                onClick={() => openOwnerPage('audit-log')}
+              >
+                View Activity Log
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * AUDIT LOG PAGE
+   * ========================================================
+   */
+
+  if (ownerPage === 'audit-log') {
+    const actionLabels: Record<string, string> = {
+      update_product: 'Updated a product',
+      delete_product: 'Deleted a product',
+      deactivate_product: 'Deactivated a product',
+      update_category: 'Updated a category',
+      delete_category: 'Deleted a category',
+      void_sale: 'Voided a sale',
+      set_business_status: 'Changed business status',
+      approve_business_application: 'Approved a business application',
+      reject_business_application: 'Rejected a business application',
+    };
+
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('settings')}
+          >
+            ← Settings
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Activity Log</h1>
+              <p>The last 100 recorded actions for this business.</p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card">
+            {loadingAuditLog ? (
+              <p>Loading activity...</p>
+            ) : auditLog.length === 0 ? (
+              <p>No activity recorded yet.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>When</th>
+                      <th>Action</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLog.map((log) => (
+                      <tr key={log.id}>
+                        <td>{new Date(log.created_at).toLocaleString()}</td>
+                        <td>{actionLabels[log.action] || log.action}</td>
+                        <td style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                          {log.details && Object.keys(log.details).length > 0
+                            ? Object.entries(log.details)
+                                .filter(([, v]) => v !== null && v !== '')
+                                .map(([k, v]) => `${k}: ${v}`)
+                                .join(', ')
+                            : '—'}
                         </td>
                       </tr>
                     ))}
