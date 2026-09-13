@@ -39,6 +39,7 @@ type Product = {
   cost_price: number;
   low_stock_threshold: number;
   is_active: boolean;
+  image_url: string | null;
 };
 
 type InventoryRow = {
@@ -399,6 +400,9 @@ export default function App() {
     useState(false);
 
   const [savingCategory, setSavingCategory] =
+    useState(false);
+
+  const [uploadingPhoto, setUploadingPhoto] =
     useState(false);
 
   /*
@@ -1152,7 +1156,7 @@ export default function App() {
       await supabase
         .from('products')
         .select(
-          'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active'
+          'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active, product_images(image_url, is_primary)'
         )
         .eq(
           'business_id',
@@ -1165,9 +1169,18 @@ export default function App() {
     if (error) {
       setError(error.message);
     } else {
-      setProducts(
-        (data || []) as Product[]
-      );
+      const mapped = (data || []).map((row: any) => {
+        const images = row.product_images || [];
+        const primary =
+          images.find((img: any) => img.is_primary) || images[0];
+
+        return {
+          ...row,
+          image_url: primary?.image_url || null,
+        };
+      });
+
+      setProducts(mapped as Product[]);
     }
 
     setLoadingProducts(false);
@@ -1580,6 +1593,96 @@ export default function App() {
     setProductLowStock(String(product.low_stock_threshold));
     setShowProductForm(true);
     setError('');
+  }
+
+  async function uploadProductPhoto(productId: string, file: File) {
+    if (!ownerBusiness) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Photo must be smaller than 5MB.');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    setError('');
+
+    // Remove any existing photo for this product first (one photo per product)
+    const { data: existing } = await supabase
+      .from('product_images')
+      .select('id, image_url')
+      .eq('product_id', productId);
+
+    if (existing && existing.length > 0) {
+      for (const img of existing) {
+        const path = img.image_url.split('/product-images/')[1];
+        if (path) {
+          await supabase.storage.from('product-images').remove([path]);
+        }
+      }
+
+      await supabase
+        .from('product_images')
+        .delete()
+        .eq('product_id', productId);
+    }
+
+    const ext = file.name.split('.').pop() || 'jpg';
+    const path = `${ownerBusiness.id}/${productId}/${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('product-images')
+      .upload(path, file, { upsert: true });
+
+    if (uploadError) {
+      setError(uploadError.message);
+      setUploadingPhoto(false);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(path);
+
+    const { error: insertError } = await supabase
+      .from('product_images')
+      .insert({
+        product_id: productId,
+        image_url: urlData.publicUrl,
+        is_primary: true,
+      });
+
+    if (insertError) {
+      setError(insertError.message);
+    } else {
+      await loadProducts(ownerBusiness.id);
+    }
+
+    setUploadingPhoto(false);
+  }
+
+  async function removeProductPhoto(productId: string, imageUrl: string) {
+    if (!ownerBusiness) return;
+
+    const confirmed = window.confirm('Remove this product photo?');
+    if (!confirmed) return;
+
+    setError('');
+
+    const path = imageUrl.split('/product-images/')[1];
+    if (path) {
+      await supabase.storage.from('product-images').remove([path]);
+    }
+
+    const { error } = await supabase
+      .from('product_images')
+      .delete()
+      .eq('product_id', productId);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await loadProducts(ownerBusiness.id);
+    }
   }
 
   function resetProductForm() {
@@ -4326,6 +4429,68 @@ export default function App() {
                   : 'Enter the basic information for this product.'}
               </p>
 
+              {editingProductId && (
+                <div style={{ marginBottom: '18px' }}>
+                  <label>Product Photo</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '8px' }}>
+                    {(() => {
+                      const currentProduct = products.find(
+                        (p) => p.id === editingProductId
+                      );
+
+                      return currentProduct?.image_url ? (
+                        <>
+                          <img
+                            src={currentProduct.image_url}
+                            alt={currentProduct.name}
+                            style={{
+                              width: '64px',
+                              height: '64px',
+                              objectFit: 'cover',
+                              borderRadius: '10px',
+                              border: '1px solid var(--border)',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() =>
+                              removeProductPhoto(
+                                editingProductId,
+                                currentProduct.image_url!
+                              )
+                            }
+                          >
+                            Remove Photo
+                          </button>
+                        </>
+                      ) : (
+                        <span style={{ color: 'var(--muted)', fontSize: '13px' }}>
+                          No photo yet
+                        </span>
+                      );
+                    })()}
+
+                    <label className="secondary-button" style={{ cursor: 'pointer', margin: 0 }}>
+                      {uploadingPhoto ? 'Uploading...' : 'Upload Photo'}
+                      <input
+                        type="file"
+                        accept="image/png, image/jpeg, image/webp"
+                        style={{ display: 'none' }}
+                        disabled={uploadingPhoto}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file && editingProductId) {
+                            uploadProductPhoto(editingProductId, file);
+                          }
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
               <form
                 onSubmit={
                   submitProductForm
@@ -4605,6 +4770,10 @@ export default function App() {
                     <tr>
 
                       <th>
+                        Photo
+                      </th>
+
+                      <th>
                         Product
                       </th>
 
@@ -4649,6 +4818,32 @@ export default function App() {
                             product.id
                           }
                         >
+
+                          <td>
+                            {product.image_url ? (
+                              <img
+                                src={product.image_url}
+                                alt={product.name}
+                                style={{
+                                  width: '40px',
+                                  height: '40px',
+                                  objectFit: 'cover',
+                                  borderRadius: '8px',
+                                  border: '1px solid var(--border)',
+                                }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: '40px',
+                                  height: '40px',
+                                  borderRadius: '8px',
+                                  background: 'var(--background)',
+                                  border: '1px solid var(--border)',
+                                }}
+                              />
+                            )}
+                          </td>
 
                           <td>
 
