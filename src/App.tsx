@@ -2826,6 +2826,78 @@ export default function App() {
       inventorySearch,
     ]);
 
+  // get_inventory_summary aggregates quantity across ALL branches into
+  // one row per product, so it can't be filtered by branch. When a
+  // specific branch is selected, compute real per-branch stock instead
+  // from the raw inventory + products data (already loaded), so the
+  // branch dropdown actually does something once there's more than
+  // one branch.
+  const branchFilteredInventory =
+    useMemo(() => {
+      if (!selectedBranch) {
+        return filteredInventory;
+      }
+
+      const search =
+        inventorySearch
+          .toLowerCase()
+          .trim();
+
+      const rows: InventorySummary[] = inventory
+        .filter(
+          (row) => row.branch_id === selectedBranch
+        )
+        .map((row) => {
+          const product = products.find(
+            (p) => p.id === row.product_id
+          );
+
+          if (!product) return null;
+
+          const quantity = Number(row.quantity || 0);
+          const threshold = Number(
+            product.low_stock_threshold || 0
+          );
+
+          const status: InventorySummary['status'] =
+            quantity <= 0
+              ? 'out_of_stock'
+              : quantity <= threshold
+              ? 'low_stock'
+              : 'in_stock';
+
+          return {
+            product_id: product.id,
+            product_name: product.name,
+            sku: product.sku,
+            selling_price: product.selling_price,
+            cost_price: product.cost_price,
+            low_stock_threshold: threshold,
+            quantity,
+            inventory_value:
+              quantity * Number(product.cost_price || 0),
+            status,
+          };
+        })
+        .filter(
+          (item): item is InventorySummary => item !== null
+        );
+
+      if (!search) return rows;
+
+      return rows.filter(
+        (item) =>
+          item.product_name.toLowerCase().includes(search) ||
+          (item.sku || '').toLowerCase().includes(search)
+      );
+    }, [
+      selectedBranch,
+      inventory,
+      products,
+      inventorySearch,
+      filteredInventory,
+    ]);
+
   const inventoryStats =
     useMemo(() => {
       const totalUnits =
@@ -5157,7 +5229,7 @@ export default function App() {
               <div className="empty-card">
                 Loading inventory...
               </div>
-            ) : filteredInventory.length ===
+            ) : branchFilteredInventory.length ===
               0 ? (
               <div className="empty-card">
 
@@ -5219,7 +5291,7 @@ export default function App() {
 
                   <tbody>
 
-                    {filteredInventory.map(
+                    {branchFilteredInventory.map(
                       (item) => (
                         <tr
                           key={
@@ -5403,6 +5475,10 @@ export default function App() {
                       </th>
 
                       <th>
+                        Branch
+                      </th>
+
+                      <th>
                         Movement
                       </th>
 
@@ -5440,6 +5516,14 @@ export default function App() {
                                 movement.product_name
                               }
                             </strong>
+                          </td>
+
+                          <td>
+                            {
+                              branches.find(
+                                (b) => b.id === movement.branch_id
+                              )?.name || '—'
+                            }
                           </td>
 
                           <td>
