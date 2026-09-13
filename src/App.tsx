@@ -108,6 +108,47 @@ type POSReceipt = {
   change_amount: number;
 };
 
+type ReceiptPayment = {
+  method: string;
+  amount: number;
+};
+
+type ReceiptItem = {
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  discount: number;
+  line_total: number;
+};
+
+type SaleReceipt = {
+  sale_id: string;
+  sale_number: string;
+  created_at: string;
+  branch_name: string | null;
+  customer_name: string | null;
+  subtotal: number;
+  discount: number;
+  total: number;
+  amount_received: number;
+  change_amount: number;
+  balance_due: number;
+  payment_status: string;
+  status: string;
+  payments: ReceiptPayment[];
+  items: ReceiptItem[];
+};
+
+type SaleHistoryRow = {
+  id: string;
+  sale_number: string;
+  total: number;
+  payment_status: string;
+  status: string;
+  created_at: string;
+  customer_id: string | null;
+};
+
 type Customer = {
   id: string;
   business_id: string;
@@ -185,6 +226,7 @@ type OwnerPage =
   | 'products'
   | 'inventory'
   | 'pos'
+  | 'sales'
   | 'purchases'
   | 'returns'
   | 'customers'
@@ -200,6 +242,9 @@ export default function App() {
 
   const [superAdminStoreView, setSuperAdminStoreView] =
     useState(false);
+
+  const [myBusinessRole, setMyBusinessRole] =
+    useState<string | null>(null);
 
   const [businesses, setBusinesses] =
     useState<Business[]>([]);
@@ -425,14 +470,23 @@ export default function App() {
   const [posCart, setPosCart] =
     useState<POSCartItem[]>([]);
 
+  const [posDiscount, setPosDiscount] =
+    useState('0');
+
+  const [posCustomerId, setPosCustomerId] =
+    useState('');
+
+  const [posPayments, setPosPayments] =
+    useState<ReceiptPayment[]>([]);
+
   const [posPaymentMethod, setPosPaymentMethod] =
     useState('cash');
 
-  const [posAmountReceived, setPosAmountReceived] =
+  const [posPaymentAmount, setPosPaymentAmount] =
     useState('');
 
-  const [posDiscount, setPosDiscount] =
-    useState('0');
+  const [posPaymentReference, setPosPaymentReference] =
+    useState('');
 
   const [posCompleting, setPosCompleting] =
     useState(false);
@@ -441,7 +495,16 @@ export default function App() {
     useState(false);
 
   const [posReceipt, setPosReceipt] =
-    useState<POSReceipt | null>(null);
+    useState<SaleReceipt | null>(null);
+
+  const [salesHistory, setSalesHistory] =
+    useState<SaleHistoryRow[]>([]);
+
+  const [loadingSalesHistory, setLoadingSalesHistory] =
+    useState(false);
+
+  const [voidingSaleId, setVoidingSaleId] =
+    useState<string | null>(null);
 
   /*
    * ========================================================
@@ -788,9 +851,12 @@ export default function App() {
 
     if (!data) {
       setOwnerBusiness(null);
+      setMyBusinessRole(null);
       setOwnerLoading(false);
       return;
     }
+
+    setMyBusinessRole(data.role);
 
     const {
       data: business,
@@ -874,7 +940,8 @@ export default function App() {
         .eq(
           'business_id',
           businessId
-        ),
+        )
+        .neq('status', 'voided'),
 
       supabase
         .from('inventory')
@@ -895,6 +962,7 @@ export default function App() {
           'business_id',
           businessId
         )
+        .neq('status', 'voided')
         .order('created_at', {
           ascending: false,
         })
@@ -1249,7 +1317,14 @@ export default function App() {
     }
 
     if (page === 'pos') {
-      await loadPOSData(ownerBusiness.id);
+      await Promise.all([
+        loadPOSData(ownerBusiness.id),
+        loadCustomers(ownerBusiness.id),
+      ]);
+    }
+
+    if (page === 'sales') {
+      await loadSalesHistory(ownerBusiness.id);
     }
 
     if (page === 'purchases') {
@@ -2156,7 +2231,9 @@ export default function App() {
   function clearPOSCart() {
     setPosCart([]);
     setPosDiscount('0');
-    setPosAmountReceived('');
+    setPosPayments([]);
+    setPosPaymentAmount('');
+    setPosCustomerId('');
     setPosReceipt(null);
     setError('');
   }
@@ -2179,15 +2256,45 @@ export default function App() {
     posSubtotal - posSaleDiscount
   );
 
-  const posReceived =
-    posPaymentMethod === 'cash'
-      ? Number(posAmountReceived || 0)
-      : posTotal;
+  const posReceived = posPayments.reduce(
+    (sum, payment) => sum + Number(payment.amount || 0),
+    0
+  );
 
   const posChange = Math.max(
     0,
     posReceived - posTotal
   );
+
+  const posBalanceDue = Math.max(
+    0,
+    posTotal - posReceived
+  );
+
+  function addPosPayment() {
+    setError('');
+
+    const amount = Number(posPaymentAmount || 0);
+
+    if (amount <= 0) {
+      setError('Enter a payment amount greater than zero.');
+      return;
+    }
+
+    setPosPayments((prev) => [
+      ...prev,
+      {
+        method: posPaymentMethod,
+        amount,
+      },
+    ]);
+
+    setPosPaymentAmount('');
+  }
+
+  function removePosPayment(index: number) {
+    setPosPayments((prev) => prev.filter((_, i) => i !== index));
+  }
 
   const filteredPOSProducts = posProducts.filter((product) => {
     const search = posSearch.toLowerCase().trim();
@@ -2218,9 +2325,11 @@ export default function App() {
       return;
     }
 
-    if (posPaymentMethod === 'cash' && posReceived < posTotal) {
+    if (posBalanceDue > 0 && !posCustomerId) {
       setError(
-        `Insufficient payment. Required GMD ${formatGMD(posTotal)}.`
+        `Payment is short by GMD ${formatGMD(
+          posBalanceDue
+        )}. Select a customer to complete this as a credit sale, or add more payment.`
       );
       return;
     }
@@ -2234,16 +2343,20 @@ export default function App() {
       discount: Number(item.itemDiscount || 0),
     }));
 
+    const payments = posPayments.map((payment) => ({
+      method: payment.method,
+      amount: payment.amount,
+    }));
+
     const { data, error } = await supabase.rpc(
       'create_pos_sale',
       {
         target_business_id: ownerBusiness.id,
         target_branch_id: selectedBranch,
-        target_customer_id: null,
-        target_payment_method: posPaymentMethod,
-        target_amount_received: posReceived,
+        target_customer_id: posCustomerId || null,
         target_discount: posSaleDiscount,
         target_items: items,
+        target_payments: payments,
       }
     );
 
@@ -2254,39 +2367,78 @@ export default function App() {
       return;
     }
 
-    const receipt = Array.isArray(data) ? data[0] : data;
+    const result = Array.isArray(data) ? data[0] : data;
 
-    if (!receipt) {
+    if (!result) {
       setError('Sale completed but no receipt data was returned.');
       setPosCompleting(false);
       return;
     }
 
-    const normalizedReceipt: POSReceipt = {
-      sale_id: receipt.sale_id,
-      sale_number: receipt.sale_number,
-      subtotal: Number(receipt.subtotal || 0),
-      discount: Number(receipt.discount || 0),
-      total: Number(receipt.total || 0),
-      amount_received: Number(receipt.amount_received || 0),
-      change_amount: Number(receipt.change_amount || 0),
+    const branchName =
+      branches.find((b) => b.id === selectedBranch)?.name || null;
+
+    const customerName = posCustomerId
+      ? customers.find((c) => c.id === posCustomerId)?.name || null
+      : null;
+
+    const receiptItems: ReceiptItem[] = posCart.map((item) => ({
+      product_name: item.name,
+      quantity: item.quantity,
+      unit_price: Number(item.selling_price || 0),
+      discount: Number(item.itemDiscount || 0),
+      line_total:
+        Number(item.selling_price || 0) * item.quantity -
+        Number(item.itemDiscount || 0),
+    }));
+
+    const normalizedReceipt: SaleReceipt = {
+      sale_id: result.sale_id,
+      sale_number: result.sale_number,
+      created_at: new Date().toISOString(),
+      branch_name: branchName,
+      customer_name: customerName,
+      subtotal: Number(result.subtotal || 0),
+      discount: Number(result.discount || 0),
+      total: Number(result.total || 0),
+      amount_received: Number(result.amount_received || 0),
+      change_amount: Number(result.change_amount || 0),
+      balance_due: Math.max(
+        0,
+        Number(result.total || 0) - Number(result.amount_received || 0)
+      ),
+      payment_status: result.payment_status || 'paid',
+      status: 'completed',
+      payments,
+      items: receiptItems,
     };
 
     setPosReceipt(normalizedReceipt);
     setPosCart([]);
     setPosDiscount('0');
-    setPosAmountReceived('');
+    setPosPayments([]);
+    setPosPaymentAmount('');
+    setPosCustomerId('');
 
     await Promise.all([
       loadPOSStock(ownerBusiness.id, selectedBranch),
       loadOwnerDashboard(ownerBusiness.id),
+      loadCustomers(ownerBusiness.id),
     ]);
 
     setPosCompleting(false);
   }
 
-  function printPOSReceipt() {
-    if (!posReceipt || !ownerBusiness) return;
+  function escapeHtml(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function printReceipt(receipt: SaleReceipt) {
+    if (!ownerBusiness) return;
 
     const receiptWindow = window.open('', '_blank', 'width=420,height=700');
 
@@ -2295,31 +2447,65 @@ export default function App() {
       return;
     }
 
+    const itemRows = receipt.items
+      .map(
+        (item) => `
+          <div class="row">
+            <span>${escapeHtml(item.product_name)} x${item.quantity}</span>
+            <span>GMD ${formatGMD(item.line_total)}</span>
+          </div>
+        `
+      )
+      .join('');
+
+    const paymentRows = receipt.payments
+      .map(
+        (payment) => `
+          <div class="row">
+            <span>Paid (${escapeHtml(payment.method)})</span>
+            <span>GMD ${formatGMD(payment.amount)}</span>
+          </div>
+        `
+      )
+      .join('');
+
     receiptWindow.document.write(`
       <!doctype html>
       <html>
         <head>
-          <title>${posReceipt.sale_number}</title>
+          <title>${receipt.sale_number}</title>
           <style>
             body { font-family: Arial, sans-serif; width: 300px; margin: 20px auto; color: #111; }
             h2, p { text-align: center; margin: 6px 0; }
             hr { border: 0; border-top: 1px dashed #999; margin: 12px 0; }
-            .row { display: flex; justify-content: space-between; margin: 6px 0; }
+            .row { display: flex; justify-content: space-between; margin: 6px 0; font-size: 13px; }
             .total { font-size: 18px; font-weight: 700; margin-top: 12px; }
+            .due { color: #c0392b; font-weight: 700; }
           </style>
         </head>
         <body>
           <h2>JabangStore</h2>
-          <p>${ownerBusiness.name}</p>
+          <p>${escapeHtml(ownerBusiness.name)}</p>
+          ${receipt.branch_name ? `<p>${escapeHtml(receipt.branch_name)}</p>` : ''}
           <hr />
-          <p><strong>${posReceipt.sale_number}</strong></p>
-          <p>${new Date().toLocaleString()}</p>
+          <p><strong>${receipt.sale_number}</strong></p>
+          <p>${new Date(receipt.created_at).toLocaleString()}</p>
+          ${receipt.customer_name ? `<p>Customer: ${escapeHtml(receipt.customer_name)}</p>` : ''}
+          ${receipt.status === 'voided' ? '<p><strong>*** VOIDED ***</strong></p>' : ''}
           <hr />
-          <div class="row"><span>Subtotal</span><span>GMD ${formatGMD(posReceipt.subtotal)}</span></div>
-          <div class="row"><span>Discount</span><span>GMD ${formatGMD(posReceipt.discount)}</span></div>
-          <div class="row total"><span>Total</span><span>GMD ${formatGMD(posReceipt.total)}</span></div>
-          <div class="row"><span>Paid</span><span>GMD ${formatGMD(posReceipt.amount_received)}</span></div>
-          <div class="row"><span>Change</span><span>GMD ${formatGMD(posReceipt.change_amount)}</span></div>
+          ${itemRows}
+          <hr />
+          <div class="row"><span>Subtotal</span><span>GMD ${formatGMD(receipt.subtotal)}</span></div>
+          <div class="row"><span>Discount</span><span>GMD ${formatGMD(receipt.discount)}</span></div>
+          <div class="row total"><span>Total</span><span>GMD ${formatGMD(receipt.total)}</span></div>
+          <hr />
+          ${paymentRows}
+          <div class="row"><span>Change</span><span>GMD ${formatGMD(receipt.change_amount)}</span></div>
+          ${
+            receipt.balance_due > 0
+              ? `<div class="row due"><span>Balance Due</span><span>GMD ${formatGMD(receipt.balance_due)}</span></div>`
+              : ''
+          }
           <hr />
           <p>Thank you for your business.</p>
           <script>window.onload = () => { window.print(); window.close(); };</script>
@@ -2327,6 +2513,138 @@ export default function App() {
       </html>
     `);
     receiptWindow.document.close();
+  }
+
+  async function loadSalesHistory(businessId: string) {
+    setLoadingSalesHistory(true);
+    setError('');
+
+    const { data, error } = await supabase
+      .from('sales')
+      .select(
+        'id, sale_number, total, payment_status, status, created_at, customer_id'
+      )
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setSalesHistory((data || []) as SaleHistoryRow[]);
+    }
+
+    setLoadingSalesHistory(false);
+  }
+
+  async function reprintSale(sale: SaleHistoryRow) {
+    setError('');
+
+    const [saleResult, itemsResult, paymentsResult] = await Promise.all([
+      supabase
+        .from('sales')
+        .select('id, sale_number, subtotal, discount, total, payment_status, status, created_at, branch_id, customer_id')
+        .eq('id', sale.id)
+        .maybeSingle(),
+      supabase
+        .from('sale_items')
+        .select('quantity, unit_price, discount, line_total, products(name)')
+        .eq('sale_id', sale.id),
+      supabase
+        .from('payments')
+        .select('payment_method, amount')
+        .eq('sale_id', sale.id),
+    ]);
+
+    if (saleResult.error || !saleResult.data) {
+      setError(saleResult.error?.message || 'Could not load this sale.');
+      return;
+    }
+
+    if (itemsResult.error) {
+      setError(itemsResult.error.message);
+      return;
+    }
+
+    const saleData: any = saleResult.data;
+
+    const branchName =
+      branches.find((b) => b.id === saleData.branch_id)?.name || null;
+
+    const customerName = saleData.customer_id
+      ? customers.find((c) => c.id === saleData.customer_id)?.name || null
+      : null;
+
+    const amountReceived = (paymentsResult.data || []).reduce(
+      (sum: number, p: any) => sum + Number(p.amount || 0),
+      0
+    );
+
+    const receipt: SaleReceipt = {
+      sale_id: saleData.id,
+      sale_number: saleData.sale_number,
+      created_at: saleData.created_at,
+      branch_name: branchName,
+      customer_name: customerName,
+      subtotal: Number(saleData.subtotal || 0),
+      discount: Number(saleData.discount || 0),
+      total: Number(saleData.total || 0),
+      amount_received: amountReceived,
+      change_amount: Math.max(0, amountReceived - Number(saleData.total || 0)),
+      balance_due: Math.max(0, Number(saleData.total || 0) - amountReceived),
+      payment_status: saleData.payment_status,
+      status: saleData.status,
+      payments: (paymentsResult.data || []).map((p: any) => ({
+        method: p.payment_method,
+        amount: Number(p.amount || 0),
+      })),
+      items: (itemsResult.data || []).map((item: any) => ({
+        product_name: item.products?.name || 'Unknown product',
+        quantity: Number(item.quantity || 0),
+        unit_price: Number(item.unit_price || 0),
+        discount: Number(item.discount || 0),
+        line_total: Number(item.line_total || 0),
+      })),
+    };
+
+    printReceipt(receipt);
+  }
+
+  async function voidSale(saleId: string) {
+    if (!ownerBusiness) return;
+
+    const reason = window.prompt(
+      'Reason for voiding this sale (optional):'
+    );
+
+    if (reason === null) return; // user cancelled the prompt
+
+    const confirmed = window.confirm(
+      'Void this sale? This restores the stock and cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    setVoidingSaleId(saleId);
+    setError('');
+
+    const { error } = await supabase.rpc('void_sale', {
+      target_business_id: ownerBusiness.id,
+      target_sale_id: saleId,
+      target_reason: reason.trim() || null,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await Promise.all([
+        loadSalesHistory(ownerBusiness.id),
+        loadOwnerDashboard(ownerBusiness.id),
+        loadInventory(ownerBusiness.id),
+      ]);
+    }
+
+    setVoidingSaleId(null);
   }
 
   /*
@@ -2530,6 +2848,7 @@ export default function App() {
       .from('sales')
       .select('id, sale_number, total, created_at')
       .eq('business_id', businessId)
+      .neq('status', 'voided')
       .order('created_at', { ascending: false })
       .limit(50);
 
@@ -2692,11 +3011,13 @@ export default function App() {
       supabase
         .from('sales')
         .select('total', { count: 'exact' })
-        .eq('business_id', businessId),
+        .eq('business_id', businessId)
+        .neq('status', 'voided'),
       supabase
         .from('sales')
         .select('total', { count: 'exact' })
         .eq('business_id', businessId)
+        .neq('status', 'voided')
         .gte('created_at', startOfToday.toISOString()),
       supabase
         .from('purchases')
@@ -2704,7 +3025,8 @@ export default function App() {
         .eq('business_id', businessId),
       supabase
         .from('sale_items')
-        .select('product_id, quantity, line_total, products(name)'),
+        .select('product_id, quantity, line_total, products(name), sales!inner(status)')
+        .neq('sales.status', 'voided'),
     ]);
 
     if (allSalesResult.error) {
@@ -5645,7 +5967,7 @@ export default function App() {
                       setSelectedBranch(branchId);
                       setPosCart([]);
                       setPosReceipt(null);
-                      setPosAmountReceived('');
+                      setPosPayments([]);
                       await loadPOSStock(ownerBusiness.id, branchId);
                     }}
                     disabled={posCompleting}
@@ -5818,45 +6140,122 @@ export default function App() {
                             <strong>GMD {formatGMD(posTotal)}</strong>
                           </div>
 
-                          <label>Payment method</label>
+                          <label>Customer (required for credit sales)</label>
                           <select
-                            value={posPaymentMethod}
-                            onChange={(e) => {
-                              setPosPaymentMethod(e.target.value);
-                              if (e.target.value !== 'cash') setPosAmountReceived('');
-                            }}
+                            value={posCustomerId}
+                            onChange={(e) => setPosCustomerId(e.target.value)}
                             disabled={posCompleting}
+                            style={{ width: '100%', marginBottom: '14px' }}
                           >
-                            <option value="cash">Cash</option>
-                            <option value="mobile_money">Mobile Money</option>
-                            <option value="card">Card</option>
-                            <option value="bank_transfer">Bank Transfer</option>
+                            <option value="">Walk-in customer</option>
+                            {customers.map((customer) => (
+                              <option key={customer.id} value={customer.id}>
+                                {customer.name}
+                              </option>
+                            ))}
                           </select>
 
-                          {posPaymentMethod === 'cash' && (
-                            <>
-                              <label>Amount received (GMD)</label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={posAmountReceived}
-                                onChange={(e) => setPosAmountReceived(e.target.value)}
-                                placeholder={formatGMD(posTotal)}
-                                disabled={posCompleting}
-                              />
+                          <label>Add payment</label>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                            <select
+                              value={posPaymentMethod}
+                              onChange={(e) => setPosPaymentMethod(e.target.value)}
+                              disabled={posCompleting}
+                              style={{ flex: 1 }}
+                            >
+                              <option value="cash">Cash</option>
+                              <option value="mobile_money">Mobile Money</option>
+                              <option value="card">Card</option>
+                              <option value="bank_transfer">Bank Transfer</option>
+                            </select>
 
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
-                                <span>Change</span>
-                                <strong>GMD {formatGMD(posChange)}</strong>
-                              </div>
-                            </>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="Amount"
+                              value={posPaymentAmount}
+                              onChange={(e) => setPosPaymentAmount(e.target.value)}
+                              disabled={posCompleting}
+                              style={{ flex: 1 }}
+                            />
+
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={addPosPayment}
+                              disabled={posCompleting}
+                            >
+                              + Add
+                            </button>
+                          </div>
+
+                          {posPayments.length > 0 && (
+                            <div style={{ marginBottom: '14px' }}>
+                              {posPayments.map((payment, index) => (
+                                <div
+                                  key={index}
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    padding: '6px 0',
+                                    borderBottom: '1px solid var(--border)',
+                                  }}
+                                >
+                                  <span>{payment.method}</span>
+                                  <span>
+                                    GMD {formatGMD(payment.amount)}{' '}
+                                    <button
+                                      className="secondary-button"
+                                      type="button"
+                                      onClick={() => removePosPayment(index)}
+                                      disabled={posCompleting}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
+                            <span>Total Received</span>
+                            <strong>GMD {formatGMD(posReceived)}</strong>
+                          </div>
+
+                          {posChange > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
+                              <span>Change</span>
+                              <strong>GMD {formatGMD(posChange)}</strong>
+                            </div>
+                          )}
+
+                          {posBalanceDue > 0 && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                marginTop: '6px',
+                                color: 'var(--danger)',
+                              }}
+                            >
+                              <span>
+                                Balance Due{' '}
+                                {!posCustomerId && '(select a customer to allow credit)'}
+                              </span>
+                              <strong>GMD {formatGMD(posBalanceDue)}</strong>
+                            </div>
                           )}
 
                           <button
                             className="primary-button"
                             onClick={completePOSSale}
-                            disabled={posCompleting || posCart.length === 0}
+                            disabled={
+                              posCompleting ||
+                              posCart.length === 0 ||
+                              (posBalanceDue > 0 && !posCustomerId)
+                            }
                             style={{ width: '100%', marginTop: '20px' }}
                           >
                             {posCompleting ? 'Completing Sale...' : 'Complete Sale'}
@@ -5878,7 +6277,7 @@ export default function App() {
                         <p>{posReceipt.sale_number}</p>
                       </div>
                       <div className="form-actions">
-                        <button className="primary-button" onClick={printPOSReceipt}>Print Receipt</button>
+                        <button className="primary-button" onClick={() => posReceipt && printReceipt(posReceipt)}>Print Receipt</button>
                         <button className="secondary-button" onClick={() => setPosReceipt(null)}>Close</button>
                       </div>
                     </div>
@@ -5910,6 +6309,12 @@ export default function App() {
                         <span>Change</span>
                         <span>GMD {formatGMD(posReceipt.change_amount)}</span>
                       </div>
+                      {posReceipt.balance_due > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--danger)', fontWeight: 600 }}>
+                          <span>Balance Due (Credit Sale{posReceipt.customer_name ? ` — ${posReceipt.customer_name}` : ''})</span>
+                          <span>GMD {formatGMD(posReceipt.balance_due)}</span>
+                        </div>
+                      )}
                       <hr />
                       <p>Thank you for your business.</p>
                     </div>
@@ -6208,6 +6613,133 @@ export default function App() {
                         <td>GMD {formatGMD(customer.current_balance)}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * SALES HISTORY PAGE
+   * ========================================================
+   */
+
+  if (ownerPage === 'sales') {
+    const canVoid = myBusinessRole === 'owner' || myBusinessRole === 'manager';
+
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('dashboard')}
+          >
+            ← Dashboard
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Sales History</h1>
+              <p>
+                {canVoid
+                  ? 'View past sales, reprint receipts, or void a sale.'
+                  : 'View past sales and reprint receipts.'}
+              </p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card">
+            {loadingSalesHistory ? (
+              <p>Loading sales...</p>
+            ) : salesHistory.length === 0 ? (
+              <p>No sales recorded yet.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Sale #</th>
+                      <th>Date</th>
+                      <th>Customer</th>
+                      <th>Total</th>
+                      <th>Payment</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesHistory.map((sale) => {
+                      const customerName = sale.customer_id
+                        ? customers.find((c) => c.id === sale.customer_id)?.name ||
+                          'Customer'
+                        : 'Walk-in';
+
+                      return (
+                        <tr key={sale.id}>
+                          <td>{sale.sale_number}</td>
+                          <td>
+                            {new Date(sale.created_at).toLocaleString()}
+                          </td>
+                          <td>{customerName}</td>
+                          <td>GMD {formatGMD(sale.total)}</td>
+                          <td style={{ textTransform: 'capitalize' }}>
+                            {sale.payment_status}
+                          </td>
+                          <td style={{ textTransform: 'capitalize' }}>
+                            {sale.status === 'voided' ? (
+                              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                                Voided
+                              </span>
+                            ) : (
+                              sale.status
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => reprintSale(sale)}
+                              >
+                                Reprint
+                              </button>
+
+                              {canVoid && sale.status === 'completed' && (
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => voidSale(sale.id)}
+                                  disabled={voidingSaleId === sale.id}
+                                >
+                                  {voidingSaleId === sale.id
+                                    ? 'Voiding...'
+                                    : 'Void'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -6855,6 +7387,33 @@ export default function App() {
 
               <p>
                 Sales and checkout.
+              </p>
+
+            </div>
+
+          </button>
+
+          <button
+            className="business-card"
+            onClick={() =>
+              openOwnerPage(
+                'sales'
+              )
+            }
+          >
+
+            <div className="business-icon">
+              🧾
+            </div>
+
+            <div className="business-info">
+
+              <h3>
+                Sales History
+              </h3>
+
+              <p>
+                Receipts, reprints, and voids.
               </p>
 
             </div>
