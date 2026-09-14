@@ -160,6 +160,25 @@ type AuditLogRow = {
   user_id: string | null;
 };
 
+type PendingSale = {
+  clientReferenceId: string;
+  businessId: string;
+  branchId: string;
+  branchName: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  discount: number;
+  items: {
+    product_id: string;
+    quantity: number;
+    discount: number;
+  }[];
+  receiptItems: ReceiptItem[];
+  payments: ReceiptPayment[];
+  queuedAt: string;
+  lastError: string | null;
+};
+
 type Customer = {
   id: string;
   business_id: string;
@@ -530,6 +549,17 @@ export default function App() {
   const [loadingAuditLog, setLoadingAuditLog] =
     useState(false);
 
+  const [isOnline, setIsOnline] =
+    useState(
+      typeof navigator === 'undefined' ? true : navigator.onLine
+    );
+
+  const [pendingSales, setPendingSales] =
+    useState<PendingSale[]>([]);
+
+  const [syncingPendingSales, setSyncingPendingSales] =
+    useState(false);
+
   /*
    * ========================================================
    * CUSTOMERS STATE
@@ -659,6 +689,87 @@ export default function App() {
     return () =>
       subscription.unsubscribe();
   }, []);
+
+  // Track online/offline state so the UI can warn the cashier and
+  // automatically retry any queued sales the moment connectivity returns.
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true);
+    }
+
+    function handleOffline() {
+      setIsOnline(false);
+    }
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // The moment connectivity comes back, try to send up anything that
+  // was queued while offline.
+  useEffect(() => {
+    if (isOnline && ownerBusiness) {
+      syncPendingSales();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, ownerBusiness?.id]);
+
+  // Restore any unsynced sales and in-progress cart from a previous
+  // session the moment a business is loaded (e.g. after a refresh or
+  // the app being closed while offline).
+  useEffect(() => {
+    if (!ownerBusiness) return;
+
+    setPendingSales(loadPendingSalesFromStorage(ownerBusiness.id));
+
+    try {
+      const raw = localStorage.getItem(
+        posDraftStorageKey(ownerBusiness.id)
+      );
+
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (Array.isArray(draft.cart) && draft.cart.length > 0) {
+          setPosCart(draft.cart);
+          setPosDiscount(draft.discount || '0');
+          setPosCustomerId(draft.customerId || '');
+          setPosPayments(draft.payments || []);
+        }
+      }
+    } catch {
+      // ignore a corrupted draft rather than blocking the page
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerBusiness?.id]);
+
+  // Keep the in-progress cart safely persisted as it changes, so a lost
+  // connection, an accidental refresh, or the app closing doesn't lose
+  // a sale the cashier was in the middle of ringing up.
+  useEffect(() => {
+    if (!ownerBusiness) return;
+
+    if (
+      posCart.length === 0 &&
+      posPayments.length === 0 &&
+      !posCustomerId &&
+      posDiscount === '0'
+    ) {
+      return;
+    }
+
+    saveDraftCartToStorage(ownerBusiness.id, {
+      cart: posCart,
+      discount: posDiscount,
+      customerId: posCustomerId,
+      payments: posPayments,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posCart, posDiscount, posCustomerId, posPayments, ownerBusiness?.id]);
 
   async function loadSession() {
     const { data, error } =
@@ -2268,6 +2379,140 @@ export default function App() {
    * ========================================================
    */
 
+  /*
+   * ========================================================
+   * OFFLINE RESILIENCE (POS)
+   * ========================================================
+   */
+
+  function pendingSalesStorageKey(businessId: string) {
+    return `jabangstore_pending_sales_${businessId}`;
+  }
+
+  function posDraftStorageKey(businessId: string) {
+    return `jabangstore_pos_draft_${businessId}`;
+  }
+
+  function loadPendingSalesFromStorage(businessId: string): PendingSale[] {
+    try {
+      const raw = localStorage.getItem(pendingSalesStorageKey(businessId));
+      return raw ? (JSON.parse(raw) as PendingSale[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function savePendingSalesToStorage(businessId: string, sales: PendingSale[]) {
+    try {
+      localStorage.setItem(
+        pendingSalesStorageKey(businessId),
+        JSON.stringify(sales)
+      );
+    } catch {
+      // localStorage may be unavailable (private browsing, storage full).
+      // The in-memory queue still holds the data for this session, and a
+      // manual "Retry Sync" click will still work as long as the tab stays open.
+    }
+  }
+
+  function saveDraftCartToStorage(
+    businessId: string,
+    draft: {
+      cart: POSCartItem[];
+      discount: string;
+      customerId: string;
+      payments: ReceiptPayment[];
+    }
+  ) {
+    try {
+      localStorage.setItem(
+        posDraftStorageKey(businessId),
+        JSON.stringify(draft)
+      );
+    } catch {
+      // ignore -- draft persistence is a convenience, not critical data
+    }
+  }
+
+  function clearDraftCartFromStorage(businessId: string) {
+    try {
+      localStorage.removeItem(posDraftStorageKey(businessId));
+    } catch {
+      // ignore
+    }
+  }
+
+  function isNetworkError(err: any) {
+    if (!isOnline) return true;
+
+    // A real error from our own database functions always carries a
+    // proper Postgres error code (e.g. 'P0001' for a validation failure,
+    // '23503' for a foreign key violation, etc). A request that never
+    // reached the server at all -- a dropped connection, DNS failure,
+    // timeout -- comes back from supabase-js with no code at all. That
+    // is a much more reliable signal than trying to match browser-specific
+    // wording like "Failed to fetch" vs "NetworkError" vs "Load failed".
+    if (!err?.code) return true;
+
+    const message = String(err?.message || '').toLowerCase();
+
+    return (
+      message.includes('fetch') ||
+      message.includes('network') ||
+      message.includes('load failed') ||
+      message.includes('timed out') ||
+      message.includes('timeout') ||
+      message.includes('connection')
+    );
+  }
+
+  async function syncPendingSales() {
+    if (!ownerBusiness) return;
+    if (syncingPendingSales) return;
+
+    const currentQueue = loadPendingSalesFromStorage(ownerBusiness.id);
+
+    if (currentQueue.length === 0) {
+      setPendingSales([]);
+      return;
+    }
+
+    setSyncingPendingSales(true);
+
+    const stillPending: PendingSale[] = [];
+    let anySucceeded = false;
+
+    for (const pending of currentQueue) {
+      const { error } = await supabase.rpc('create_pos_sale', {
+        target_business_id: pending.businessId,
+        target_branch_id: pending.branchId,
+        target_customer_id: pending.customerId,
+        target_discount: pending.discount,
+        target_items: pending.items,
+        target_payments: pending.payments,
+        target_client_reference_id: pending.clientReferenceId,
+      });
+
+      if (error) {
+        stillPending.push({ ...pending, lastError: error.message });
+      } else {
+        anySucceeded = true;
+      }
+    }
+
+    setPendingSales(stillPending);
+    savePendingSalesToStorage(ownerBusiness.id, stillPending);
+
+    if (anySucceeded) {
+      await Promise.all([
+        loadOwnerDashboard(ownerBusiness.id),
+        loadInventory(ownerBusiness.id),
+      ]);
+    }
+
+    setSyncingPendingSales(false);
+  }
+
   async function loadPOSData(businessId: string) {
     setPosLoading(true);
     setError('');
@@ -2553,33 +2798,6 @@ export default function App() {
       amount: payment.amount,
     }));
 
-    const { data, error } = await supabase.rpc(
-      'create_pos_sale',
-      {
-        target_business_id: ownerBusiness.id,
-        target_branch_id: selectedBranch,
-        target_customer_id: posCustomerId || null,
-        target_discount: posSaleDiscount,
-        target_items: items,
-        target_payments: payments,
-      }
-    );
-
-    if (error) {
-      setError(error.message);
-      setPosCompleting(false);
-      await loadPOSStock(ownerBusiness.id, selectedBranch);
-      return;
-    }
-
-    const result = Array.isArray(data) ? data[0] : data;
-
-    if (!result) {
-      setError('Sale completed but no receipt data was returned.');
-      setPosCompleting(false);
-      return;
-    }
-
     const branchName =
       branches.find((b) => b.id === selectedBranch)?.name || null;
 
@@ -2596,6 +2814,103 @@ export default function App() {
         Number(item.selling_price || 0) * item.quantity -
         Number(item.itemDiscount || 0),
     }));
+
+    // Generated up front so a retry (automatic or manual) after a dropped
+    // connection reuses the exact same key -- the database will recognize
+    // it and return the original sale instead of creating a duplicate.
+    const clientReferenceId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const { data, error } = await supabase.rpc(
+      'create_pos_sale',
+      {
+        target_business_id: ownerBusiness.id,
+        target_branch_id: selectedBranch,
+        target_customer_id: posCustomerId || null,
+        target_discount: posSaleDiscount,
+        target_items: items,
+        target_payments: payments,
+        target_client_reference_id: clientReferenceId,
+      }
+    );
+
+    if (error) {
+      if (isNetworkError(error)) {
+        // No connection right now. The sale is not lost: queue it locally,
+        // clear the till for the next customer, and it will be sent
+        // automatically the moment connectivity returns (or via "Retry
+        // Sync Now"). Stock and totals are only applied once the server
+        // actually confirms it.
+        const queued: PendingSale = {
+          clientReferenceId,
+          businessId: ownerBusiness.id,
+          branchId: selectedBranch,
+          branchName,
+          customerId: posCustomerId || null,
+          customerName,
+          discount: posSaleDiscount,
+          items,
+          receiptItems,
+          payments,
+          queuedAt: new Date().toISOString(),
+          lastError: null,
+        };
+
+        const updatedQueue = [
+          ...loadPendingSalesFromStorage(ownerBusiness.id),
+          queued,
+        ];
+
+        setPendingSales(updatedQueue);
+        savePendingSalesToStorage(ownerBusiness.id, updatedQueue);
+
+        const queuedReceipt: SaleReceipt = {
+          sale_id: clientReferenceId,
+          sale_number: 'Pending sync (offline)',
+          created_at: queued.queuedAt,
+          branch_name: branchName,
+          customer_name: customerName,
+          subtotal: posSubtotal,
+          discount: posSaleDiscount,
+          total: posTotal,
+          amount_received: posReceived,
+          change_amount: posChange,
+          balance_due: posBalanceDue,
+          payment_status: posBalanceDue > 0 ? 'partial' : 'paid',
+          status: 'queued',
+          payments,
+          items: receiptItems,
+        };
+
+        setPosReceipt(queuedReceipt);
+        setPosCart([]);
+        setPosDiscount('0');
+        setPosPayments([]);
+        setPosPaymentAmount('');
+        setPosCustomerId('');
+        clearDraftCartFromStorage(ownerBusiness.id);
+        setPosCompleting(false);
+        return;
+      }
+
+      // A real error from the server (out of stock, permission, etc.) --
+      // not a connectivity problem, so retrying won't help. Show it and
+      // leave the cart exactly as the cashier had it.
+      setError(error.message);
+      setPosCompleting(false);
+      await loadPOSStock(ownerBusiness.id, selectedBranch);
+      return;
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+
+    if (!result) {
+      setError('Sale completed but no receipt data was returned.');
+      setPosCompleting(false);
+      return;
+    }
 
     const normalizedReceipt: SaleReceipt = {
       sale_id: result.sale_id,
@@ -2624,6 +2939,7 @@ export default function App() {
     setPosPayments([]);
     setPosPaymentAmount('');
     setPosCustomerId('');
+    clearDraftCartFromStorage(ownerBusiness.id);
 
     await Promise.all([
       loadPOSStock(ownerBusiness.id, selectedBranch),
@@ -2697,6 +3013,7 @@ export default function App() {
           <p>${new Date(receipt.created_at).toLocaleString()}</p>
           ${receipt.customer_name ? `<p>Customer: ${escapeHtml(receipt.customer_name)}</p>` : ''}
           ${receipt.status === 'voided' ? '<p><strong>*** VOIDED ***</strong></p>' : ''}
+          ${receipt.status === 'queued' ? '<p><strong>*** PENDING SYNC (recorded offline) ***</strong></p>' : ''}
           <hr />
           ${itemRows}
           <hr />
@@ -6314,6 +6631,55 @@ export default function App() {
 
           {error && <div className="error">{error}</div>}
 
+          {!isOnline && (
+            <div
+              className="error"
+              style={{ background: '#fff8e1', color: '#8a6d00', borderColor: '#f0d98a' }}
+            >
+              You're offline. Sales will keep working — each one is saved
+              on this device and will send automatically the moment your
+              connection returns.
+            </div>
+          )}
+
+          {pendingSales.length > 0 && (
+            <div
+              className="error"
+              style={{ background: '#eef5ff', color: '#0b3d6e', borderColor: '#bcdcff' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                <span>
+                  {pendingSales.length} sale{pendingSales.length > 1 ? 's' : ''}{' '}
+                  waiting to sync
+                  {pendingSales.some((p) => p.lastError) &&
+                    ' — one or more had an error, see below'}
+                  .
+                </span>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={syncPendingSales}
+                  disabled={syncingPendingSales || !isOnline}
+                >
+                  {syncingPendingSales ? 'Syncing...' : 'Retry Sync Now'}
+                </button>
+              </div>
+
+              {pendingSales.some((p) => p.lastError) && (
+                <div style={{ marginTop: '10px', fontSize: '12px' }}>
+                  {pendingSales
+                    .filter((p) => p.lastError)
+                    .map((p) => (
+                      <div key={p.clientReferenceId}>
+                        Queued {new Date(p.queuedAt).toLocaleString()} —{' '}
+                        {p.lastError}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {branches.length === 0 ? (
             <section className="empty-card">
               <div className="empty-icon">🏪</div>
@@ -6641,9 +7007,20 @@ export default function App() {
                   <div className="create-business-card">
                     <div className="section-title">
                       <div>
-                        <span className="status">● Sale Completed</span>
+                        <span className="status">
+                          {posReceipt.status === 'queued'
+                            ? '● Saved — Waiting to Sync'
+                            : '● Sale Completed'}
+                        </span>
                         <h2>Receipt</h2>
                         <p>{posReceipt.sale_number}</p>
+                        {posReceipt.status === 'queued' && (
+                          <p style={{ color: 'var(--danger)', fontSize: '13px' }}>
+                            No connection right now — this sale is saved on
+                            this device and will sync automatically once
+                            you're back online.
+                          </p>
+                        )}
                       </div>
                       <div className="form-actions">
                         <button className="primary-button" onClick={() => posReceipt && printReceipt(posReceipt)}>Print Receipt</button>
