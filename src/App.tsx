@@ -1446,9 +1446,69 @@ export default function App() {
     setSavingBranch(false);
   }
 
+  const CASHIER_TIER_PAGES: OwnerPage[] = [
+    'dashboard',
+    'pos',
+    'sales',
+    'customers',
+  ];
+
+  function isBusinessAdminTier() {
+    return myBusinessRole === 'owner' || myBusinessRole === 'manager';
+  }
+
+  function roleBadgeLabel() {
+    if (superAdminStoreView) return 'Super Admin (Operating Store)';
+
+    switch (myBusinessRole) {
+      case 'owner':
+        return 'Owner';
+      case 'manager':
+        return 'Manager';
+      case 'cashier':
+        return 'Cashier';
+      case 'inventory_staff':
+        return 'Inventory Staff';
+      default:
+        return 'Staff';
+    }
+  }
+
+  function RoleBadge() {
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          padding: '3px 10px',
+          borderRadius: '999px',
+          fontSize: '11px',
+          fontWeight: 700,
+          letterSpacing: '0.03em',
+          textTransform: 'uppercase',
+          marginTop: '4px',
+          color: isBusinessAdminTier() ? 'var(--green)' : 'var(--gold-dark)',
+          background: isBusinessAdminTier() ? 'var(--green-light)' : '#fff6e0',
+          border: `1px solid ${isBusinessAdminTier() ? 'var(--green)' : 'var(--gold)'}`,
+        }}
+      >
+        {roleBadgeLabel()}
+      </span>
+    );
+  }
+
   async function openOwnerPage(
     page: OwnerPage
   ) {
+    if (
+      !isBusinessAdminTier() &&
+      !CASHIER_TIER_PAGES.includes(page)
+    ) {
+      setError(
+        `Your role (${roleBadgeLabel()}) doesn't have access to that section.`
+      );
+      return;
+    }
+
     setOwnerPage(page);
     setError('');
 
@@ -4728,6 +4788,7 @@ export default function App() {
                 ownerBusiness.name
               }
             </small>
+            <div><RoleBadge /></div>
           </div>
 
           <button
@@ -4746,7 +4807,7 @@ export default function App() {
             <div>
 
               <span className="status">
-                ● Business Owner
+                ● {roleBadgeLabel()}
               </span>
 
               <h1>
@@ -5573,6 +5634,7 @@ export default function App() {
                 ownerBusiness.name
               }
             </small>
+            <div><RoleBadge /></div>
           </div>
 
           <button
@@ -6593,6 +6655,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
 
           <button
@@ -7091,6 +7154,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
           <button className="logout-button" onClick={handleLogout}>
             Sign out
@@ -7215,7 +7279,7 @@ export default function App() {
             )}
 
             {branches.length === 0 ? (
-              <p>No branches yet.</p>
+              <p>No branches yet. Add your first branch above to start assigning inventory and staff to a location.</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
@@ -7304,6 +7368,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
           <button className="logout-button" onClick={handleLogout}>
             Sign out
@@ -7331,7 +7396,7 @@ export default function App() {
             {loadingAuditLog ? (
               <p>Loading activity...</p>
             ) : auditLog.length === 0 ? (
-              <p>No activity recorded yet.</p>
+              <p>No activity recorded yet. Actions like edits, deletions, voided sales, and approvals will appear here as they happen.</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
@@ -7382,6 +7447,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
           <button className="logout-button" onClick={handleLogout}>
             Sign out
@@ -7451,7 +7517,7 @@ export default function App() {
             {loadingCustomers ? (
               <p>Loading customers...</p>
             ) : customers.length === 0 ? (
-              <p>No customers yet.</p>
+              <p>No customers yet. Add your first customer above — you'll need one on file to offer a credit sale in POS.</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
@@ -7499,6 +7565,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
           <button className="logout-button" onClick={handleLogout}>
             Sign out
@@ -7530,7 +7597,7 @@ export default function App() {
             {loadingSalesHistory ? (
               <p>Loading sales...</p>
             ) : salesHistory.length === 0 ? (
-              <p>No sales recorded yet.</p>
+              <p>No sales recorded yet. Completed sales from POS will appear here, where you can reprint receipts or void a sale.</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
@@ -7624,6 +7691,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
           <button className="logout-button" onClick={handleLogout}>
             Sign out
@@ -7771,7 +7839,7 @@ export default function App() {
             {loadingPurchases ? (
               <p>Loading...</p>
             ) : purchases.length === 0 ? (
-              <p>No purchases recorded yet.</p>
+              <p>No purchases recorded yet. Record your first stock purchase above to add inventory to a branch.</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
@@ -7819,6 +7887,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
           <button className="logout-button" onClick={handleLogout}>
             Sign out
@@ -7925,7 +7994,7 @@ export default function App() {
             {loadingReturns ? (
               <p>Loading...</p>
             ) : returns.length === 0 ? (
-              <p>No returns recorded yet.</p>
+              <p>No returns recorded yet. Process a return above by selecting the original sale and the items to send back.</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
@@ -7971,6 +8040,7 @@ export default function App() {
               Jabang<span>Store</span>
             </div>
             <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
           </div>
           <button className="logout-button" onClick={handleLogout}>
             Sign out
@@ -8033,7 +8103,7 @@ export default function App() {
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Top selling products</h3>
                 {reportsData.topProducts.length === 0 ? (
-                  <p>No sales yet.</p>
+                  <p>No sales yet. Once you make sales in POS, your best-selling products will appear here.</p>
                 ) : (
                   <div className="table-wrapper">
                     <table className="data-table">
@@ -8087,6 +8157,8 @@ export default function App() {
             }
           </small>
 
+          <div><RoleBadge /></div>
+
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -8118,7 +8190,7 @@ export default function App() {
           <div>
 
             <span className="status">
-              ● Business Owner
+              ● {roleBadgeLabel()}
             </span>
 
             <h1>
@@ -8140,6 +8212,15 @@ export default function App() {
           <div className="error">
             {error}
           </div>
+        )}
+
+        {!isBusinessAdminTier() && (
+          <p style={{ color: 'var(--muted)', fontSize: '13px', margin: '0 0 16px' }}>
+            You're signed in as {roleBadgeLabel()}, so you see POS, Sales
+            History, and Customers here. Product, Inventory, Purchases,
+            Returns, Reports, and Settings are managed by the business
+            Owner or a Manager.
+          </p>
         )}
 
         <section className="business-grid">
@@ -8171,6 +8252,7 @@ export default function App() {
 
           </button>
 
+          {isBusinessAdminTier() && (
           <button
             className="business-card"
             onClick={() =>
@@ -8197,7 +8279,9 @@ export default function App() {
             </div>
 
           </button>
+          )}
 
+          {isBusinessAdminTier() && (
           <button
             className="business-card"
             onClick={() =>
@@ -8224,6 +8308,7 @@ export default function App() {
             </div>
 
           </button>
+          )}
 
           <button
             className="business-card"
@@ -8279,6 +8364,7 @@ export default function App() {
 
           </button>
 
+          {isBusinessAdminTier() && (
           <button
             className="business-card"
             onClick={() =>
@@ -8305,7 +8391,9 @@ export default function App() {
             </div>
 
           </button>
+          )}
 
+          {isBusinessAdminTier() && (
           <button
             className="business-card"
             onClick={() =>
@@ -8332,6 +8420,7 @@ export default function App() {
             </div>
 
           </button>
+          )}
 
           <button
             className="business-card"
@@ -8360,6 +8449,7 @@ export default function App() {
 
           </button>
 
+          {isBusinessAdminTier() && (
           <button
             className="business-card"
             onClick={() =>
@@ -8386,7 +8476,9 @@ export default function App() {
             </div>
 
           </button>
+          )}
 
+          {isBusinessAdminTier() && (
           <button
             className="business-card"
             onClick={() =>
@@ -8413,6 +8505,7 @@ export default function App() {
             </div>
 
           </button>
+          )}
 
         </section>
 
