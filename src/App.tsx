@@ -3288,7 +3288,7 @@ export default function App() {
       <!doctype html>
       <html>
         <head>
-          <title>${receipt.sale_number}</title>
+          <title>${escapeHtml(receipt.sale_number)}</title>
           <style>
             body { font-family: Arial, sans-serif; width: 300px; margin: 20px auto; color: #111; }
             h2, p { text-align: center; margin: 6px 0; }
@@ -3303,7 +3303,7 @@ export default function App() {
           <p>${escapeHtml(ownerBusiness.name)}</p>
           ${receipt.branch_name ? `<p>${escapeHtml(receipt.branch_name)}</p>` : ''}
           <hr />
-          <p><strong>${receipt.sale_number}</strong></p>
+          <p><strong>${escapeHtml(receipt.sale_number)}</strong></p>
           <p>${new Date(receipt.created_at).toLocaleString()}</p>
           ${receipt.customer_name ? `<p>Customer: ${escapeHtml(receipt.customer_name)}</p>` : ''}
           ${receipt.status === 'voided' ? '<p><strong>*** VOIDED ***</strong></p>' : ''}
