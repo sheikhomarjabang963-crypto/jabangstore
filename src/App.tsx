@@ -57,6 +57,25 @@ type Branch = {
   phone: string | null;
 };
 
+type StaffMember = {
+  member_id: string;
+  user_id: string;
+  email: string;
+  role: string;
+  assigned_branch_id: string | null;
+  branch_name: string | null;
+  joined_at: string;
+};
+
+type StaffInvite = {
+  id: string;
+  email: string;
+  role: string;
+  branch_id: string | null;
+  status: string;
+  created_at: string;
+};
+
 type InventorySummary = {
   product_id: string;
   product_name: string;
@@ -262,7 +281,8 @@ type OwnerPage =
   | 'customers'
   | 'reports'
   | 'settings'
-  | 'audit-log';
+  | 'audit-log'
+  | 'staff';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -275,6 +295,9 @@ export default function App() {
     useState(false);
 
   const [myBusinessRole, setMyBusinessRole] =
+    useState<string | null>(null);
+
+  const [myAssignedBranchId, setMyAssignedBranchId] =
     useState<string | null>(null);
 
   const [businesses, setBusinesses] =
@@ -368,6 +391,45 @@ export default function App() {
 
   const [savingBranch, setSavingBranch] =
     useState(false);
+
+  const [staff, setStaff] =
+    useState<StaffMember[]>([]);
+
+  const [staffInvites, setStaffInvites] =
+    useState<StaffInvite[]>([]);
+
+  const [loadingStaff, setLoadingStaff] =
+    useState(false);
+
+  const [inviteEmail, setInviteEmail] =
+    useState('');
+
+  const [inviteRole, setInviteRole] =
+    useState('cashier');
+
+  const [inviteBranchId, setInviteBranchId] =
+    useState('');
+
+  const [sendingInvite, setSendingInvite] =
+    useState(false);
+
+  const [authMode, setAuthMode] =
+    useState<'signin' | 'signup'>('signin');
+
+  const [signUpEmail, setSignUpEmail] =
+    useState('');
+
+  const [signUpPassword, setSignUpPassword] =
+    useState('');
+
+  const [signUpConfirmPassword, setSignUpConfirmPassword] =
+    useState('');
+
+  const [signingUp, setSigningUp] =
+    useState(false);
+
+  const [signUpMessage, setSignUpMessage] =
+    useState('');
 
   const [loadingProducts, setLoadingProducts] =
     useState(false);
@@ -1001,7 +1063,7 @@ export default function App() {
       await supabase
         .from('business_members')
         .select(
-          'business_id, role'
+          'business_id, role, assigned_branch_id'
         )
         .eq('user_id', userId)
         .in('role', ['owner', 'manager', 'cashier', 'inventory_staff'])
@@ -1016,11 +1078,13 @@ export default function App() {
     if (!data) {
       setOwnerBusiness(null);
       setMyBusinessRole(null);
+      setMyAssignedBranchId(null);
       setOwnerLoading(false);
       return;
     }
 
     setMyBusinessRole(data.role);
+    setMyAssignedBranchId(data.assigned_branch_id);
 
     const {
       data: business,
@@ -1446,6 +1510,166 @@ export default function App() {
     setSavingBranch(false);
   }
 
+  /*
+   * ========================================================
+   * STAFF MANAGEMENT
+   * ========================================================
+   */
+
+  async function loadStaff(businessId: string) {
+    setLoadingStaff(true);
+    setError('');
+
+    const [staffResult, invitesResult] = await Promise.all([
+      supabase.rpc('get_business_staff', {
+        target_business_id: businessId,
+      }),
+      supabase
+        .from('staff_invites')
+        .select('id, email, role, branch_id, status, created_at')
+        .eq('business_id', businessId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false }),
+    ]);
+
+    if (staffResult.error) {
+      setError(staffResult.error.message);
+    } else {
+      setStaff((staffResult.data || []) as StaffMember[]);
+    }
+
+    if (invitesResult.error) {
+      setError(invitesResult.error.message);
+    } else {
+      setStaffInvites((invitesResult.data || []) as StaffInvite[]);
+    }
+
+    setLoadingStaff(false);
+  }
+
+  async function sendStaffInvite(e: FormEvent) {
+    e.preventDefault();
+
+    if (!ownerBusiness) return;
+
+    const email = inviteEmail.trim().toLowerCase();
+
+    if (!email) {
+      setError('Please enter an email address.');
+      return;
+    }
+
+    setSendingInvite(true);
+    setError('');
+
+    const { error } = await supabase.from('staff_invites').insert({
+      business_id: ownerBusiness.id,
+      email,
+      role: inviteRole,
+      branch_id: inviteBranchId || null,
+      invited_by: session?.user?.id || null,
+    });
+
+    if (error) {
+      if (error.code === '23505') {
+        setError(
+          `${email} already has a pending invite to this business.`
+        );
+      } else {
+        setError(error.message);
+      }
+    } else {
+      setInviteEmail('');
+      setInviteRole('cashier');
+      setInviteBranchId('');
+      await loadStaff(ownerBusiness.id);
+    }
+
+    setSendingInvite(false);
+  }
+
+  async function cancelStaffInvite(inviteId: string) {
+    if (!ownerBusiness) return;
+
+    const confirmed = window.confirm('Cancel this invite?');
+    if (!confirmed) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('staff_invites')
+      .delete()
+      .eq('id', inviteId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await loadStaff(ownerBusiness.id);
+    }
+  }
+
+  async function removeStaffMember(memberId: string, email: string) {
+    if (!ownerBusiness) return;
+
+    const confirmed = window.confirm(
+      `Remove ${email} from this business? They will immediately lose access.`
+    );
+    if (!confirmed) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('business_members')
+      .delete()
+      .eq('id', memberId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await logAudit('remove_staff', 'business_member', memberId, { email });
+      await loadStaff(ownerBusiness.id);
+    }
+  }
+
+  async function updateStaffRole(memberId: string, newRole: string) {
+    if (!ownerBusiness) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('business_members')
+      .update({ role: newRole })
+      .eq('id', memberId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await logAudit('update_staff_role', 'business_member', memberId, { new_role: newRole });
+      await loadStaff(ownerBusiness.id);
+    }
+  }
+
+  async function updateStaffBranch(memberId: string, branchId: string) {
+    if (!ownerBusiness) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('business_members')
+      .update({ assigned_branch_id: branchId || null })
+      .eq('id', memberId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await loadStaff(ownerBusiness.id);
+    }
+  }
+
   const CASHIER_TIER_PAGES: OwnerPage[] = [
     'dashboard',
     'pos',
@@ -1594,6 +1818,13 @@ export default function App() {
 
     if (page === 'audit-log') {
       await loadAuditLog(ownerBusiness.id);
+    }
+
+    if (page === 'staff') {
+      await Promise.all([
+        loadStaff(ownerBusiness.id),
+        loadBranches(ownerBusiness.id),
+      ]);
     }
   }
 
@@ -2613,7 +2844,10 @@ export default function App() {
     setBranches(branchData);
 
     const branchId =
-      selectedBranch && branchData.some((branch) => branch.id === selectedBranch)
+      myAssignedBranchId &&
+      branchData.some((branch) => branch.id === myAssignedBranchId)
+        ? myAssignedBranchId
+        : selectedBranch && branchData.some((branch) => branch.id === selectedBranch)
         ? selectedBranch
         : branchData[0]?.id || '';
 
@@ -3972,6 +4206,12 @@ export default function App() {
             account.
           </p>
 
+          {signUpMessage && (
+            <div className="error" style={{ background: '#eef9ef', color: '#1a6b2f', borderColor: '#bfe8c6' }}>
+              {signUpMessage}
+            </div>
+          )}
+
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -4055,6 +4295,172 @@ export default function App() {
             </button>
 
           </form>
+
+          <p style={{ textAlign: 'center', fontSize: '13px', marginTop: '14px' }}>
+            New here?{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('signup');
+                setError('');
+                setSignUpMessage('');
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--green)',
+                fontWeight: 700,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              Create an account
+            </button>
+          </p>
+
+          <div className="security-note">
+            🔒 Secure authentication
+            powered by Supabase
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * SIGN UP
+   * ========================================================
+   */
+
+  if (authMode === 'signup' && !session) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+
+          <div className="brand">
+            Jabang<span>Store</span>
+          </div>
+
+          <p>Create your account</p>
+
+          <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
+            If a business owner already invited this email address, you'll
+            be taken straight to your team's store after signing up.
+          </p>
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setError('');
+              setSignUpMessage('');
+
+              const email = signUpEmail.trim();
+
+              if (!email || !signUpPassword) {
+                setError('Please enter your email and a password.');
+                return;
+              }
+
+              if (signUpPassword.length < 6) {
+                setError('Password must be at least 6 characters.');
+                return;
+              }
+
+              if (signUpPassword !== signUpConfirmPassword) {
+                setError('Passwords do not match.');
+                return;
+              }
+
+              setSigningUp(true);
+
+              const { data, error } = await supabase.auth.signUp({
+                email,
+                password: signUpPassword,
+              });
+
+              if (error) {
+                setError(error.message);
+                setSigningUp(false);
+                return;
+              }
+
+              if (!data.session) {
+                setSignUpMessage(
+                  'Account created! Check your email to confirm it, then sign in.'
+                );
+                setAuthMode('signin');
+              } else {
+                // Signed up and already have a session (email confirmation
+                // is off for this project) -- head straight into the app.
+                setAuthMode('signin');
+              }
+
+              setSignUpEmail('');
+              setSignUpPassword('');
+              setSignUpConfirmPassword('');
+              setSigningUp(false);
+            }}
+          >
+            <label>Email address</label>
+            <input
+              type="email"
+              value={signUpEmail}
+              onChange={(e) => setSignUpEmail(e.target.value)}
+              placeholder="Enter your email"
+              autoComplete="email"
+            />
+
+            <label>Password</label>
+            <input
+              type="password"
+              value={signUpPassword}
+              onChange={(e) => setSignUpPassword(e.target.value)}
+              placeholder="At least 6 characters"
+              autoComplete="new-password"
+            />
+
+            <label>Confirm password</label>
+            <input
+              type="password"
+              value={signUpConfirmPassword}
+              onChange={(e) => setSignUpConfirmPassword(e.target.value)}
+              placeholder="Re-enter your password"
+              autoComplete="new-password"
+            />
+
+            {error && <div className="error">{error}</div>}
+
+            <button
+              type="submit"
+              className="login-button"
+              disabled={signingUp}
+            >
+              {signingUp ? 'Creating Account...' : 'Create Account'}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', fontSize: '13px', marginTop: '14px' }}>
+            Already have an account?{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('signin');
+                setError('');
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--green)',
+                fontWeight: 700,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              Sign in
+            </button>
+          </p>
 
           <div className="security-note">
             🔒 Secure authentication
@@ -6758,24 +7164,42 @@ export default function App() {
                     <p>Select a branch, add products and complete the sale.</p>
                   </div>
 
-                  <select
-                    value={selectedBranch}
-                    onChange={async (e) => {
-                      const branchId = e.target.value;
-                      setSelectedBranch(branchId);
-                      setPosCart([]);
-                      setPosReceipt(null);
-                      setPosPayments([]);
-                      await loadPOSStock(ownerBusiness.id, branchId);
-                    }}
-                    disabled={posCompleting}
-                  >
-                    {branches.map((branch) => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name}
-                      </option>
-                    ))}
-                  </select>
+                  {myAssignedBranchId ? (
+                    <div style={{ fontWeight: 700 }}>
+                      {branches.find((b) => b.id === myAssignedBranchId)?.name ||
+                        'Assigned branch'}{' '}
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--muted)',
+                          textTransform: 'uppercase',
+                          marginLeft: '6px',
+                        }}
+                      >
+                        (locked to your branch)
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedBranch}
+                      onChange={async (e) => {
+                        const branchId = e.target.value;
+                        setSelectedBranch(branchId);
+                        setPosCart([]);
+                        setPosReceipt(null);
+                        setPosPayments([]);
+                        await loadPOSStock(ownerBusiness.id, branchId);
+                      }}
+                      disabled={posCompleting}
+                    >
+                      {branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div
@@ -7419,6 +7843,237 @@ export default function App() {
                                 .map(([k, v]) => `${k}: ${v}`)
                                 .join(', ')
                             : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  /*
+   * ========================================================
+   * STAFF PAGE
+   * ========================================================
+   */
+
+  if (ownerPage === 'staff') {
+    return (
+      <div className="dashboard-page">
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('dashboard')}
+          >
+            ← Dashboard
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Staff</h1>
+              <p>
+                Invite managers, cashiers, and inventory staff, and
+                optionally lock a cashier to one branch.
+              </p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginTop: 0 }}>Invite a staff member</h3>
+            <p style={{ fontSize: '13px', color: 'var(--muted)', marginTop: 0 }}>
+              They'll get access automatically the moment they create an
+              account with this exact email address on the sign-in page.
+            </p>
+
+            <form onSubmit={sendStaffInvite}>
+              <label>Email address</label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="name@example.com"
+                style={{ width: '100%', marginBottom: '10px' }}
+                required
+              />
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <div style={{ flex: 1 }}>
+                  <label>Role</label>
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="manager">Manager</option>
+                    <option value="cashier">Cashier</option>
+                    <option value="inventory_staff">Inventory Staff</option>
+                  </select>
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  <label>Lock to branch (optional)</label>
+                  <select
+                    value={inviteBranchId}
+                    onChange={(e) => setInviteBranchId(e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">Any branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={sendingInvite}
+              >
+                {sendingInvite ? 'Sending Invite...' : 'Send Invite'}
+              </button>
+            </form>
+          </div>
+
+          {staffInvites.length > 0 && (
+            <div className="card" style={{ marginBottom: '20px' }}>
+              <h3 style={{ marginTop: 0 }}>Pending invites</h3>
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Branch</th>
+                      <th>Invited</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffInvites.map((invite) => (
+                      <tr key={invite.id}>
+                        <td>{invite.email}</td>
+                        <td style={{ textTransform: 'capitalize' }}>
+                          {invite.role.replace('_', ' ')}
+                        </td>
+                        <td>
+                          {branches.find((b) => b.id === invite.branch_id)?.name ||
+                            'Any branch'}
+                        </td>
+                        <td>{new Date(invite.created_at).toLocaleDateString()}</td>
+                        <td>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => cancelStaffInvite(invite.id)}
+                          >
+                            Cancel
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Current team</h3>
+            {loadingStaff ? (
+              <p>Loading team...</p>
+            ) : staff.length === 0 ? (
+              <p>No team members yet. Invite your first one above.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Branch</th>
+                      <th>Joined</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staff.map((member) => (
+                      <tr key={member.member_id}>
+                        <td>{member.email}</td>
+                        <td>
+                          {member.role === 'owner' ? (
+                            <span style={{ textTransform: 'capitalize' }}>
+                              {member.role}
+                            </span>
+                          ) : (
+                            <select
+                              value={member.role}
+                              onChange={(e) =>
+                                updateStaffRole(member.member_id, e.target.value)
+                              }
+                            >
+                              <option value="manager">Manager</option>
+                              <option value="cashier">Cashier</option>
+                              <option value="inventory_staff">
+                                Inventory Staff
+                              </option>
+                            </select>
+                          )}
+                        </td>
+                        <td>
+                          {member.role === 'owner' ? (
+                            'All branches'
+                          ) : (
+                            <select
+                              value={member.assigned_branch_id || ''}
+                              onChange={(e) =>
+                                updateStaffBranch(member.member_id, e.target.value)
+                              }
+                            >
+                              <option value="">Any branch</option>
+                              {branches.map((branch) => (
+                                <option key={branch.id} value={branch.id}>
+                                  {branch.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                        <td>{new Date(member.joined_at).toLocaleDateString()}</td>
+                        <td>
+                          {member.role !== 'owner' && (
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() =>
+                                removeStaffMember(member.member_id, member.email)
+                              }
+                            >
+                              Remove
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -8500,6 +9155,35 @@ export default function App() {
 
               <p>
                 Business settings.
+              </p>
+
+            </div>
+
+          </button>
+          )}
+
+          {isBusinessAdminTier() && (
+          <button
+            className="business-card"
+            onClick={() =>
+              openOwnerPage(
+                'staff'
+              )
+            }
+          >
+
+            <div className="business-icon">
+              👥
+            </div>
+
+            <div className="business-info">
+
+              <h3>
+                Staff
+              </h3>
+
+              <p>
+                Invite and manage your team.
               </p>
 
             </div>
