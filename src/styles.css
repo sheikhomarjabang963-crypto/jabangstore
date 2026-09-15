@@ -75,6 +75,76 @@ select {
 }
 
 /* =========================================================
+   GLOBAL FORM CONTROLS
+   Every page's inputs/selects/textareas/labels get this
+   consistent, touch-friendly styling by default -- previously
+   only the auth page and business-creation form had it, which
+   left every later page (Purchases, Returns, Customers, Staff,
+   Reports, Settings, Sales History, POS) rendering with
+   unstyled, cramped browser-default form fields. More specific
+   rules (like .auth-card input) still take precedence, so this
+   changes nothing about pages that were already styled.
+   ========================================================= */
+
+label {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  width: 100%;
+  min-height: 46px;
+  margin: 0 0 14px;
+  padding: 0 14px;
+  color: var(--text);
+  background: var(--white);
+  border: 1px solid #d9e2dd;
+  border-radius: 10px;
+  font-size: 14px;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+textarea {
+  min-height: 80px;
+  padding: 12px 14px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"])::placeholder,
+textarea::placeholder {
+  color: #a1aaa6;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover,
+select:hover,
+textarea:hover {
+  border-color: #c5d2cb;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(11, 61, 46, 0.09);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #f5f7f5;
+}
+
+/* =========================================================
    BRAND
    ========================================================= */
 
@@ -1178,8 +1248,15 @@ select:focus-visible {
   box-shadow: var(--shadow);
 }
 
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .data-table {
   width: 100%;
+  min-width: 600px;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -1200,4 +1277,72 @@ select:focus-visible {
 
 .data-table tr:last-child td {
   border-bottom: none;
+}
+
+/* =========================================================
+   MOBILE REFINEMENTS — pages added across later rounds
+   (Purchases, Returns, Customers, Reports, Settings, Staff,
+   Sales History, Audit Log, POS) that share .page-container,
+   .card, .page-header, and .data-table. Purely additive --
+   doesn't change anything on screens wider than these
+   breakpoints, and doesn't touch the existing dashboard/admin
+   responsive rules already in place above.
+   ========================================================= */
+
+@media (max-width: 700px) {
+  .page-container {
+    padding: 26px 0 50px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .page-header h1 {
+    font-size: 21px;
+  }
+
+  .card {
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .data-table {
+    font-size: 12px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 9px 8px;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-container {
+    width: 94%;
+  }
+
+  .card {
+    padding: 14px;
+  }
+}
+
+/* Buttons and form rows that sit side-by-side on desktop
+   (e.g. product/qty/cost in Purchases, payment method/amount
+   in POS, role/branch in Staff invites) stack cleanly instead
+   of squeezing on a phone screen. */
+@media (max-width: 560px) {
+  .card form > div[style*="display: flex"],
+  .card > div[style*="display: flex"] {
+    flex-direction: column;
+  }
+
+  .card form > div[style*="display: flex"] > *,
+  .card > div[style*="display: flex"] > * {
+    width: 100%;
+  }
 }
