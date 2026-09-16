@@ -300,6 +300,9 @@ export default function App() {
   const [myAssignedBranchId, setMyAssignedBranchId] =
     useState<string | null>(null);
 
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false);
+
   const [businesses, setBusinesses] =
     useState<Business[]>([]);
 
@@ -1717,6 +1720,102 @@ export default function App() {
       >
         {roleBadgeLabel()}
       </span>
+    );
+  }
+
+  function Sidebar() {
+    const items: { key: OwnerPage; label: string; icon: string; adminOnly?: boolean }[] = [
+      { key: 'dashboard', label: 'Dashboard', icon: '📊' },
+      { key: 'pos', label: 'POS', icon: '🛒' },
+      { key: 'sales', label: 'Sales History', icon: '🧾' },
+      { key: 'customers', label: 'Customers', icon: '🧍' },
+      { key: 'products', label: 'Products', icon: '📦', adminOnly: true },
+      { key: 'inventory', label: 'Inventory', icon: '📋', adminOnly: true },
+      { key: 'purchases', label: 'Purchases', icon: '🚚', adminOnly: true },
+      { key: 'returns', label: 'Returns & Refunds', icon: '↩️', adminOnly: true },
+      { key: 'reports', label: 'Reports', icon: '📈', adminOnly: true },
+      { key: 'staff', label: 'Staff', icon: '👥', adminOnly: true },
+      { key: 'settings', label: 'Settings', icon: '⚙️', adminOnly: true },
+    ];
+
+    const visibleItems = items.filter(
+      (item) => !item.adminOnly || isBusinessAdminTier()
+    );
+
+    return (
+      <>
+        {sidebarOpen && (
+          <div
+            className="sidebar-scrim"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        <aside className={`app-sidebar ${sidebarOpen ? 'open' : ''}`}>
+          <div className="app-sidebar-brand">
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness?.name}</small>
+            <div style={{ marginTop: '8px' }}>
+              <RoleBadge />
+            </div>
+          </div>
+
+          <nav className="app-sidebar-nav">
+            {visibleItems.map((item) => (
+              <button
+                key={item.key}
+                className={`app-sidebar-link ${ownerPage === item.key ? 'active' : ''}`}
+                onClick={() => {
+                  openOwnerPage(item.key);
+                  setSidebarOpen(false);
+                }}
+              >
+                <span className="app-sidebar-icon">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="app-sidebar-footer">
+            {superAdminStoreView && (
+              <button
+                className="secondary-button"
+                onClick={backToAdminPanel}
+                style={{ width: '100%', marginBottom: '10px' }}
+              >
+                ← Back to Admin Panel
+              </button>
+            )}
+            <button
+              className="logout-button"
+              onClick={handleLogout}
+              style={{ width: '100%' }}
+            >
+              Sign out
+            </button>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  function MobileTopBar() {
+    return (
+      <header className="mobile-topbar">
+        <button
+          className="mobile-menu-button"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Open menu"
+        >
+          ☰
+        </button>
+        <div className="brand" style={{ fontSize: '20px' }}>
+          Jabang<span>Store</span>
+        </div>
+        <div style={{ width: '40px' }} />
+      </header>
     );
   }
 
@@ -5180,7 +5279,9 @@ export default function App() {
     'products'
   ) {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
 
         <header className="topbar">
 
@@ -6026,7 +6127,9 @@ export default function App() {
     'inventory'
   ) {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
 
         <header className="topbar">
 
@@ -7054,7 +7157,9 @@ export default function App() {
 
   if (ownerPage === 'pos') {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -7571,7 +7676,9 @@ export default function App() {
     ownerPage === 'settings'
   ) {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -7785,7 +7892,9 @@ export default function App() {
     };
 
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -7864,7 +7973,9 @@ export default function App() {
 
   if (ownerPage === 'staff') {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -8095,7 +8206,9 @@ export default function App() {
 
   if (ownerPage === 'customers') {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -8213,7 +8326,9 @@ export default function App() {
     const canVoid = myBusinessRole === 'owner' || myBusinessRole === 'manager';
 
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -8339,7 +8454,9 @@ export default function App() {
 
   if (ownerPage === 'purchases') {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -8535,7 +8652,9 @@ export default function App() {
 
   if (ownerPage === 'returns') {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -8688,7 +8807,9 @@ export default function App() {
 
   if (ownerPage === 'reports') {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
         <header className="topbar">
           <div>
             <div className="brand">
@@ -8796,7 +8917,9 @@ export default function App() {
    */
 
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page has-sidebar">
+      <Sidebar />
+      <MobileTopBar />
 
       <header className="topbar">
 
