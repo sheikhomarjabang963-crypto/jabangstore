@@ -2385,6 +2385,26 @@ export default function App() {
     }
   }
 
+  async function reactivateProduct(productId: string) {
+    if (!ownerBusiness) return;
+
+    setError('');
+
+    const { error } = await supabase
+      .from('products')
+      .update({ is_active: true })
+      .eq('id', productId)
+      .eq('business_id', ownerBusiness.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await logAudit('reactivate_product', 'product', productId, {});
+      await loadProducts(ownerBusiness.id);
+      await loadOwnerDashboard(ownerBusiness.id);
+    }
+  }
+
   function startEditCategory(category: Category) {
     setEditingCategoryId(category.id);
     setCategoryName(category.name);
@@ -4998,6 +5018,46 @@ export default function App() {
             </section>
           )}
 
+          <section className="business-grid" style={{ marginBottom: '24px' }}>
+            <article className="business-card">
+              <div className="business-icon">🏢</div>
+              <div className="business-info">
+                <h3>{businesses.length}</h3>
+                <p>Total Businesses</p>
+              </div>
+            </article>
+
+            <article className="business-card">
+              <div className="business-icon">✅</div>
+              <div className="business-info">
+                <h3>
+                  {businesses.filter((b) => b.status === 'active').length}
+                </h3>
+                <p>Active</p>
+              </div>
+            </article>
+
+            <article className="business-card">
+              <div className="business-icon">⏳</div>
+              <div className="business-info">
+                <h3>
+                  {businesses.filter((b) => b.status === 'pending').length}
+                </h3>
+                <p>Pending</p>
+              </div>
+            </article>
+
+            <article className="business-card">
+              <div className="business-icon">🚫</div>
+              <div className="business-info">
+                <h3>
+                  {businesses.filter((b) => b.status === 'suspended').length}
+                </h3>
+                <p>Suspended</p>
+              </div>
+            </article>
+          </section>
+
           <section className="business-section">
 
             <div className="section-title">
@@ -5885,7 +5945,7 @@ export default function App() {
                           </td>
 
                           <td>
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                               <button
                                 className="secondary-button"
                                 onClick={() => startEditProduct(product)}
@@ -5893,15 +5953,25 @@ export default function App() {
                               >
                                 Edit
                               </button>
-                              <button
-                                className="secondary-button"
-                                onClick={() =>
-                                  deleteProduct(product.id, product.name)
-                                }
-                                type="button"
-                              >
-                                Delete
-                              </button>
+                              {product.is_active ? (
+                                <button
+                                  className="secondary-button"
+                                  onClick={() =>
+                                    deleteProduct(product.id, product.name)
+                                  }
+                                  type="button"
+                                >
+                                  Delete
+                                </button>
+                              ) : (
+                                <button
+                                  className="secondary-button"
+                                  onClick={() => reactivateProduct(product.id)}
+                                  type="button"
+                                >
+                                  Reactivate
+                                </button>
+                              )}
                             </div>
                           </td>
 
