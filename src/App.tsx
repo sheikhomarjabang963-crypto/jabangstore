@@ -4767,9 +4767,11 @@ export default function App() {
                 </h2>
 
                 <p>
-                  Assign an existing
-                  JabangStore user as the
-                  owner of this business.
+                  Make an existing JabangStore
+                  user an owner of this
+                  business. This adds them as
+                  an additional owner — it does
+                  not remove any existing owner.
                 </p>
 
                 {loadingUsers ? (
