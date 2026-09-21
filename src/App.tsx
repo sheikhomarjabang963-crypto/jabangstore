@@ -791,6 +791,15 @@ export default function App() {
    */
 
   useEffect(() => {
+    return () => {
+      if (cameraScanTimerRef.current) {
+        clearInterval(cameraScanTimerRef.current);
+      }
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
     loadSession();
 
     const {
@@ -1856,6 +1865,10 @@ export default function App() {
   async function openOwnerPage(
     page: OwnerPage
   ) {
+    if (page !== 'pos' && cameraScannerOpen) {
+      stopCameraScanner();
+    }
+
     if (
       !isBusinessAdminTier() &&
       !CASHIER_TIER_PAGES.includes(page)
