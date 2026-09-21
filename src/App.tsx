@@ -113,6 +113,36 @@ type RecentSale = {
   created_at: string;
 };
 
+type DashboardSale = {
+  id: string;
+  sale_number: string;
+  total?: number;
+  payment_status: string;
+  created_at: string;
+};
+
+type DashboardPurchase = {
+  id: string;
+  purchase_number: string;
+  total: number;
+  status: string;
+  created_at: string;
+};
+
+type DashboardPayment = {
+  payment_method: string;
+  amount: number;
+};
+
+type DashboardActivity = {
+  todayTransactions: number;
+  todayExpenses: number;
+  recentSales: DashboardSale[];
+  recentExpenses: DashboardPurchase[];
+  payments: DashboardPayment[];
+  outstandingCredit: number;
+};
+
 type POSCartItem = Product & {
   quantity: number;
   itemDiscount: number;
@@ -364,6 +394,16 @@ export default function App() {
 
   const [lowStockProducts, setLowStockProducts] =
     useState<Product[]>([]);
+
+  const [dashboardActivity, setDashboardActivity] =
+    useState<DashboardActivity>({
+      todayTransactions: 0,
+      todayExpenses: 0,
+      recentSales: [],
+      recentExpenses: [],
+      payments: [],
+      outstandingCredit: 0,
+    });
 
   const [categories, setCategories] =
     useState<Category[]>([]);
@@ -1140,202 +1180,166 @@ export default function App() {
   ) {
     setError('');
 
+    const canViewFinancials =
+      myBusinessRole === 'owner' ||
+      myBusinessRole === 'manager' ||
+      superAdminStoreView;
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
     const [
       productsResult,
       customersResult,
       salesResult,
       inventoryResult,
       recentSalesResult,
+      purchasesResult,
+      paymentsResult,
+      creditResult,
     ] = await Promise.all([
       supabase
         .from('products')
         .select(
           'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active'
         )
-        .eq(
-          'business_id',
-          businessId
-        ),
+        .eq('business_id', businessId),
 
       supabase
         .from('customers')
-        .select('id', {
-          count: 'exact',
-          head: true,
-        })
-        .eq(
-          'business_id',
-          businessId
-        ),
+        .select('id', { count: 'exact', head: true })
+        .eq('business_id', businessId),
 
       supabase
         .from('sales')
         .select(
-          'id, total, created_at'
+          canViewFinancials
+            ? 'id, sale_number, total, payment_status, created_at'
+            : 'id, sale_number, payment_status, created_at'
         )
-        .eq(
-          'business_id',
-          businessId
-        )
+        .eq('business_id', businessId)
         .neq('status', 'voided'),
 
       supabase
         .from('inventory')
-        .select(
-          'id, product_id, branch_id, quantity'
-        )
-        .eq(
-          'business_id',
-          businessId
-        ),
+        .select('id, product_id, branch_id, quantity')
+        .eq('business_id', businessId),
 
       supabase
         .from('sales')
         .select(
-          'id, total, created_at'
+          canViewFinancials
+            ? 'id, sale_number, total, payment_status, created_at'
+            : 'id, sale_number, payment_status, created_at'
         )
-        .eq(
-          'business_id',
-          businessId
-        )
+        .eq('business_id', businessId)
         .neq('status', 'voided')
-        .order('created_at', {
-          ascending: false,
-        })
+        .order('created_at', { ascending: false })
         .limit(5),
+
+      canViewFinancials
+        ? supabase
+            .from('purchases')
+            .select('id, purchase_number, total, status, created_at')
+            .eq('business_id', businessId)
+            .order('created_at', { ascending: false })
+            .limit(5)
+        : Promise.resolve({ data: [], error: null }),
+
+      canViewFinancials
+        ? supabase
+            .from('payments')
+            .select('payment_method, amount, sales!inner(business_id, created_at, status)')
+            .eq('sales.business_id', businessId)
+            .neq('sales.status', 'voided')
+            .gte('sales.created_at', startOfDay.toISOString())
+        : Promise.resolve({ data: [], error: null }),
+
+      canViewFinancials
+        ? supabase
+            .from('customers')
+            .select('current_balance')
+            .eq('business_id', businessId)
+            .gt('current_balance', 0)
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
-    if (productsResult.error) {
-      setError(
-        productsResult.error.message
-      );
+    const requiredResults = [
+      productsResult,
+      customersResult,
+      salesResult,
+      inventoryResult,
+      recentSalesResult,
+    ];
+
+    const failedResult = requiredResults.find((result) => result.error);
+    if (failedResult?.error) {
+      setError(failedResult.error.message);
       return;
     }
 
-    if (customersResult.error) {
-      setError(
-        customersResult.error.message
-      );
-      return;
-    }
+    const productData = (productsResult.data || []) as Product[];
+    const inventoryData = (inventoryResult.data || []) as InventoryRow[];
+    const salesData = (salesResult.data || []) as Array<{
+      id: string;
+      total?: number;
+      created_at: string;
+    }>;
 
-    if (salesResult.error) {
-      setError(
-        salesResult.error.message
-      );
-      return;
-    }
+    const todaySales = canViewFinancials
+      ? salesData
+          .filter((sale) => new Date(sale.created_at) >= startOfDay)
+          .reduce((sum, sale) => sum + Number(sale.total || 0), 0)
+      : 0;
 
-    if (inventoryResult.error) {
-      setError(
-        inventoryResult.error.message
-      );
-      return;
-    }
+    const lowStock = productData.filter((product) => {
+      const stock = inventoryData
+        .filter((item) => item.product_id === product.id)
+        .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
-    if (recentSalesResult.error) {
-      setError(
-        recentSalesResult.error.message
-      );
-      return;
-    }
+      return stock <= Number(product.low_stock_threshold);
+    });
 
-    const productData =
-      (productsResult.data ||
-        []) as Product[];
+    const purchasesData = purchasesResult.error
+      ? []
+      : ((purchasesResult.data || []) as DashboardPurchase[]);
+    const todayExpenses = purchasesData
+      .filter((purchase) => new Date(purchase.created_at) >= startOfDay)
+      .reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
 
-    const inventoryData =
-      (inventoryResult.data ||
-        []) as InventoryRow[];
-
-    const salesData =
-      (salesResult.data ||
-        []) as RecentSale[];
-
-    const startOfDay =
-      new Date();
-
-    startOfDay.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    const todaySales =
-      salesData
-        .filter(
-          (sale) =>
-            new Date(
-              sale.created_at
-            ) >= startOfDay
-        )
-        .reduce(
-          (sum, sale) =>
-            sum +
-            Number(
-              sale.total || 0
-            ),
+    const paymentData = paymentsResult.error
+      ? []
+      : ((paymentsResult.data || []) as DashboardPayment[]);
+    const outstandingCredit = creditResult.error
+      ? 0
+      : (creditResult.data || []).reduce(
+          (sum: number, customer: { current_balance: number }) =>
+            sum + Number(customer.current_balance || 0),
           0
         );
 
-    const lowStock =
-      productData.filter(
-        (product) => {
-          const stock =
-            inventoryData
-              .filter(
-                (item) =>
-                  item.product_id ===
-                  product.id
-              )
-              .reduce(
-                (sum, item) =>
-                  sum +
-                  Number(
-                    item.quantity || 0
-                  ),
-                0
-              );
-
-          return (
-            stock <=
-            Number(
-              product.low_stock_threshold
-            )
-          );
-        }
-      );
-
     setProducts(productData);
     setInventory(inventoryData);
-
-    setRecentSales(
-      (recentSalesResult.data ||
-        []) as RecentSale[]
-    );
-
-    setLowStockProducts(
-      lowStock
-    );
-
+    setRecentSales((recentSalesResult.data || []) as RecentSale[]);
+    setLowStockProducts(lowStock);
     setDashboardStats({
-      products:
-        productData.length,
-
-      customers:
-        customersResult.count || 0,
-
-      sales:
-        salesData.length,
-
-      lowStock:
-        lowStock.length,
-
+      products: productData.length,
+      customers: customersResult.count || 0,
+      sales: salesData.length,
+      lowStock: lowStock.length,
       todaySales,
     });
+    setDashboardActivity({
+      todayTransactions: salesData.filter(
+        (sale) => new Date(sale.created_at) >= startOfDay
+      ).length,
+      todayExpenses,
+      recentSales: (recentSalesResult.data || []) as DashboardSale[],
+      recentExpenses: purchasesData,
+      payments: paymentData,
+      outstandingCredit,
+    });
   }
-
   /*
    * ========================================================
    * PRODUCTS
@@ -8988,740 +8992,299 @@ export default function App() {
    * ========================================================
    */
 
+  const canViewDashboardFinancials =
+    myBusinessRole === 'owner' ||
+    myBusinessRole === 'manager' ||
+    superAdminStoreView;
+  const netCashFlow =
+    dashboardStats.todaySales - dashboardActivity.todayExpenses;
+  const paymentSummary = dashboardActivity.payments.reduce(
+    (summary: Record<string, number>, payment) => {
+      summary[payment.payment_method] =
+        (summary[payment.payment_method] || 0) + Number(payment.amount || 0);
+      return summary;
+    },
+    {}
+  );
+  const paymentTotal = Object.values(paymentSummary).reduce(
+    (sum, amount) => sum + amount,
+    0
+  );
+  const chartMaximum = Math.max(
+    dashboardStats.todaySales,
+    dashboardActivity.todayExpenses,
+    1
+  );
+
   return (
     <div className="dashboard-page has-sidebar">
       <Sidebar />
       <MobileTopBar />
 
       <header className="topbar">
-
         <div>
-
-          <div className="brand">
-            Jabang<span>Store</span>
-          </div>
-
-          <small>
-            {
-              ownerBusiness.name
-            }
-          </small>
-
+          <div className="brand">Jabang<span>Store</span></div>
+          <small>{ownerBusiness.name}</small>
           <div><RoleBadge /></div>
-
         </div>
-
         <div style={{ display: 'flex', gap: '10px' }}>
           {superAdminStoreView && (
-            <button
-              className="secondary-button"
-              onClick={backToAdminPanel}
-            >
+            <button className="secondary-button" onClick={backToAdminPanel}>
               ← Back to Admin Panel
             </button>
           )}
-
-          <button
-            className="logout-button"
-            onClick={
-              handleLogout
-            }
-          >
+          <button className="logout-button" onClick={handleLogout}>
             Sign out
           </button>
         </div>
-
       </header>
 
-      <main className="admin-content">
-
-        <section className="admin-header">
-
+      <main className="admin-content dashboard-content">
+        <section className="dashboard-hero">
           <div>
-
-            <span className="status">
-              ● {roleBadgeLabel()}
-            </span>
-
-            <h1>
-              Dashboard
-            </h1>
-
-            <p>
-              Manage and monitor{' '}
-              {
-                ownerBusiness.name
-              }.
-            </p>
-
+            <span className="status">● Today at a glance</span>
+            <h1>Dashboard</h1>
+            <p>Keep track of the activity that matters for {ownerBusiness.name}.</p>
           </div>
-
+          <button
+            className="secondary-button"
+            onClick={() => loadOwnerDashboard(ownerBusiness.id)}
+          >
+            Refresh activity
+          </button>
         </section>
 
-        {error && (
-          <div className="error">
-            {error}
-          </div>
-        )}
+        {error && <div className="error">{error}</div>}
 
-        {!isBusinessAdminTier() && (
-          <p style={{ color: 'var(--muted)', fontSize: '13px', margin: '0 0 16px' }}>
-            You're signed in as {roleBadgeLabel()}, so you see POS, Sales
-            History, and Customers here. Product, Inventory, Purchases,
-            Returns, Reports, and Settings are managed by the business
-            Owner or a Manager.
-          </p>
-        )}
-
-        <section className="business-grid">
-
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'dashboard'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              📊
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Dashboard
-              </h3>
-
-              <p>
-                Business performance.
-              </p>
-
-            </div>
-
-          </button>
-
-          {isBusinessAdminTier() && (
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'products'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              📦
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Products
-              </h3>
-
-              <p>
-                Products and categories.
-              </p>
-
-            </div>
-
-          </button>
+        <section className="dashboard-metrics">
+          {canViewDashboardFinancials && (
+            <>
+              <article className="dashboard-metric">
+                <span>Today's Sales</span>
+                <strong>GMD {formatGMD(dashboardStats.todaySales)}</strong>
+                <small>{dashboardActivity.todayTransactions} transactions</small>
+              </article>
+              <article className="dashboard-metric">
+                <span>Today's Expenses</span>
+                <strong>GMD {formatGMD(dashboardActivity.todayExpenses)}</strong>
+                <small>Recorded purchases today</small>
+              </article>
+              <article className="dashboard-metric">
+                <span>Net Cash Flow</span>
+                <strong className={netCashFlow < 0 ? 'is-negative' : ''}>
+                  GMD {formatGMD(netCashFlow)}
+                </strong>
+                <small>Sales less recorded purchases</small>
+              </article>
+            </>
           )}
-
-          {isBusinessAdminTier() && (
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'inventory'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              📋
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Inventory
-              </h3>
-
-              <p>
-                Stock management.
-              </p>
-
-            </div>
-
-          </button>
-          )}
-
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'pos'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              🛒
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                POS
-              </h3>
-
-              <p>
-                Sales and checkout.
-              </p>
-
-            </div>
-
-          </button>
-
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'sales'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              🧾
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Sales History
-              </h3>
-
-              <p>
-                Receipts, reprints, and voids.
-              </p>
-
-            </div>
-
-          </button>
-
-          {isBusinessAdminTier() && (
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'purchases'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              🚚
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Purchases
-              </h3>
-
-              <p>
-                Record goods bought in.
-              </p>
-
-            </div>
-
-          </button>
-          )}
-
-          {isBusinessAdminTier() && (
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'returns'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              ↩️
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Returns &amp; Refunds
-              </h3>
-
-              <p>
-                Process a customer return.
-              </p>
-
-            </div>
-
-          </button>
-          )}
-
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'customers'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              👥
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Customers
-              </h3>
-
-              <p>
-                Customer management.
-              </p>
-
-            </div>
-
-          </button>
-
-          {isBusinessAdminTier() && (
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'reports'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              📈
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Reports
-              </h3>
-
-              <p>
-                Business reports.
-              </p>
-
-            </div>
-
-          </button>
-          )}
-
-          {isBusinessAdminTier() && (
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'settings'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              ⚙️
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Settings
-              </h3>
-
-              <p>
-                Business settings.
-              </p>
-
-            </div>
-
-          </button>
-          )}
-
-          {isBusinessAdminTier() && (
-          <button
-            className="business-card"
-            onClick={() =>
-              openOwnerPage(
-                'staff'
-              )
-            }
-          >
-
-            <div className="business-icon">
-              👥
-            </div>
-
-            <div className="business-info">
-
-              <h3>
-                Staff
-              </h3>
-
-              <p>
-                Invite and manage your team.
-              </p>
-
-            </div>
-
-          </button>
-          )}
-
+          <article className="dashboard-metric">
+            <span>Today's Transactions</span>
+            <strong>{dashboardActivity.todayTransactions}</strong>
+            <small>Completed sales today</small>
+          </article>
         </section>
 
-        <section className="business-section">
-
-          <div className="section-title">
-
-            <div>
-
-              <h2>
-                Business Overview
-              </h2>
-
-              <p>
-                Live information from
-                Supabase.
-              </p>
-
-            </div>
-
-          </div>
-
-          <div className="business-grid">
-
-            <article className="business-card">
-
-              <div className="business-icon">
-                💰
+        {canViewDashboardFinancials && (
+          <section className="dashboard-grid dashboard-grid--two">
+            <article className="dashboard-panel">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2>Sales vs Expenses</h2>
+                  <p>Today's recorded activity</p>
+                </div>
               </div>
-
-              <div className="business-info">
-
-                <h3>
-                  Today's Sales
-                </h3>
-
-                <p>
-                  GMD{' '}
-                  {
-                    formatGMD(
-                      dashboardStats.todaySales
-                    )
-                  }
-                </p>
-
+              <div className="cash-flow-chart" aria-label="Today's sales and expenses comparison">
+                <div className="chart-column">
+                  <div className="chart-track">
+                    <div className="chart-bar chart-bar--sales" style={{ height: `${(dashboardStats.todaySales / chartMaximum) * 100}%` }} />
+                  </div>
+                  <strong>GMD {formatGMD(dashboardStats.todaySales)}</strong>
+                  <span>Sales</span>
+                </div>
+                <div className="chart-column">
+                  <div className="chart-track">
+                    <div className="chart-bar chart-bar--expenses" style={{ height: `${(dashboardActivity.todayExpenses / chartMaximum) * 100}%` }} />
+                  </div>
+                  <strong>GMD {formatGMD(dashboardActivity.todayExpenses)}</strong>
+                  <span>Expenses</span>
+                </div>
               </div>
-
             </article>
 
-            <article className="business-card">
-
-              <div className="business-icon">
-                🧾
+            <article className="dashboard-panel">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2>Payment Method Summary</h2>
+                  <p>Payments received today</p>
+                </div>
               </div>
-
-              <div className="business-info">
-
-                <h3>
-                  Total Sales
-                </h3>
-
-                <p>
-                  {
-                    dashboardStats.sales
-                  }
-                </p>
-
-              </div>
-
-            </article>
-
-            <article className="business-card">
-
-              <div className="business-icon">
-                📦
-              </div>
-
-              <div className="business-info">
-
-                <h3>
-                  Products
-                </h3>
-
-                <p>
-                  {
-                    dashboardStats.products
-                  }
-                </p>
-
-              </div>
-
-            </article>
-
-            <article className="business-card">
-
-              <div className="business-icon">
-                👥
-              </div>
-
-              <div className="business-info">
-
-                <h3>
-                  Customers
-                </h3>
-
-                <p>
-                  {
-                    dashboardStats.customers
-                  }
-                </p>
-
-              </div>
-
-            </article>
-
-            <article className="business-card">
-
-              <div className="business-icon">
-                ⚠️
-              </div>
-
-              <div className="business-info">
-
-                <h3>
-                  Low Stock
-                </h3>
-
-                <p>
-                  {
-                    dashboardStats.lowStock
-                  }
-                </p>
-
-              </div>
-
-            </article>
-
-          </div>
-
-        </section>
-
-        <section className="business-section">
-
-          <div className="section-title">
-
-            <div>
-
-              <h2>
-                Recent Sales
-              </h2>
-
-              <p>
-                Latest transactions.
-              </p>
-
-            </div>
-
-          </div>
-
-          {recentSales.length ===
-          0 ? (
-            <div className="empty-card">
-
-              <h3>
-                No sales yet
-              </h3>
-
-              <p>
-                Sales will appear here after
-                the POS module is connected.
-              </p>
-
-            </div>
-          ) : (
-            <div className="table-wrapper">
-
-              <table className="data-table">
-
-                <thead>
-
-                  <tr>
-
-                    <th>
-                      Sale
-                    </th>
-
-                    <th>
-                      Amount
-                    </th>
-
-                    <th>
-                      Date
-                    </th>
-
-                  </tr>
-
-                </thead>
-
-                <tbody>
-
-                  {recentSales.map(
-                    (sale) => (
-                      <tr
-                        key={
-                          sale.id
-                        }
-                      >
-
-                        <td>
-                          #
-                          {
-                            sale.id.slice(
-                              0,
-                              8
-                            )
-                          }
-                        </td>
-
-                        <td>
-                          GMD{' '}
-                          {
-                            formatGMD(
-                              Number(
-                                sale.total
-                              )
-                            )
-                          }
-                        </td>
-
-                        <td>
-                          {new Date(
-                            sale.created_at
-                          ).toLocaleString()}
-                        </td>
-
-                      </tr>
-                    )
-                  )}
-
-                </tbody>
-
-              </table>
-
-            </div>
-          )}
-
-        </section>
-
-        <section className="business-section">
-
-          <div className="section-title">
-
-            <div>
-
-              <h2>
-                Low Stock Products
-              </h2>
-
-              <p>
-                Products that need attention.
-              </p>
-
-            </div>
-
-          </div>
-
-          {lowStockProducts.length ===
-          0 ? (
-            <div className="empty-card">
-
-              <div className="empty-icon">
-                ✅
-              </div>
-
-              <h3>
-                Stock levels look good
-              </h3>
-
-              <p>
-                No products are currently
-                below their low-stock threshold.
-              </p>
-
-            </div>
-          ) : (
-            <div className="business-grid">
-
-              {lowStockProducts.map(
-                (product) => (
-                  <article
-                    className="business-card"
-                    key={
-                      product.id
-                    }
-                  >
-
-                    <div className="business-icon">
-                      ⚠️
+              {paymentTotal === 0 ? (
+                <p className="dashboard-empty">No payment activity recorded today.</p>
+              ) : (
+                <div className="payment-summary">
+                  {Object.entries(paymentSummary).map(([method, amount]) => (
+                    <div className="payment-summary-row" key={method}>
+                      <span>{method.replace(/_/g, ' ')}</span>
+                      <strong>GMD {formatGMD(amount)}</strong>
                     </div>
-
-                    <div className="business-info">
-
-                      <h3>
-                        {
-                          product.name
-                        }
-                      </h3>
-
-                      <p>
-                        Stock:{' '}
-                        {
-                          getProductStock(
-                            product.id
-                          )
-                        }
-                      </p>
-
-                      <p>
-                        Alert at:{' '}
-                        {
-                          product.low_stock_threshold
-                        }
-                      </p>
-
-                    </div>
-
-                  </article>
-                )
+                  ))}
+                </div>
               )}
+            </article>
+          </section>
+        )}
 
+        <section className="dashboard-grid dashboard-grid--two">
+          <article className="dashboard-panel">
+            <div className="dashboard-panel-heading">
+              <div>
+                <h2>Recent Sales</h2>
+                <p>Most recently completed transactions</p>
+              </div>
+              <button className="text-action" onClick={() => openOwnerPage('sales')}>
+                View sales
+              </button>
             </div>
-          )}
+            {dashboardActivity.recentSales.length === 0 ? (
+              <p className="dashboard-empty">No completed sales recorded yet.</p>
+            ) : (
+              <div className="activity-list">
+                {dashboardActivity.recentSales.map((sale) => (
+                  <div className="activity-row" key={sale.id}>
+                    <div>
+                      <strong>{sale.sale_number}</strong>
+                      <span>{new Date(sale.created_at).toLocaleString()}</span>
+                    </div>
+                    <div className="activity-row__amount">
+                      {canViewDashboardFinancials && <strong>GMD {formatGMD(Number(sale.total || 0))}</strong>}
+                      <span>{sale.payment_status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </article>
 
+          {canViewDashboardFinancials ? (
+            <article className="dashboard-panel">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2>Recent Expenses</h2>
+                  <p>Most recently recorded purchases</p>
+                </div>
+                <button className="text-action" onClick={() => openOwnerPage('purchases')}>
+                  View purchases
+                </button>
+              </div>
+              {dashboardActivity.recentExpenses.length === 0 ? (
+                <p className="dashboard-empty">No purchases recorded yet.</p>
+              ) : (
+                <div className="activity-list">
+                  {dashboardActivity.recentExpenses.map((purchase) => (
+                    <div className="activity-row" key={purchase.id}>
+                      <div>
+                        <strong>{purchase.purchase_number}</strong>
+                        <span>{new Date(purchase.created_at).toLocaleString()}</span>
+                      </div>
+                      <div className="activity-row__amount">
+                        <strong>GMD {formatGMD(Number(purchase.total || 0))}</strong>
+                        <span>{purchase.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </article>
+          ) : (
+            <article className="dashboard-panel">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2>Quick Actions</h2>
+                  <p>Common cashier tasks</p>
+                </div>
+              </div>
+              <div className="dashboard-actions">
+                <button className="primary-button" onClick={() => openOwnerPage('pos')}>Open POS</button>
+                <button className="secondary-button" onClick={() => openOwnerPage('customers')}>Customers</button>
+              </div>
+            </article>
+          )}
         </section>
 
-      </main>
+        {canViewDashboardFinancials && (
+          <section className="dashboard-grid dashboard-grid--two">
+            <article className="dashboard-panel">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2>Credit / Money Owed</h2>
+                  <p>Outstanding customer balances</p>
+                </div>
+                <button className="text-action" onClick={() => openOwnerPage('customers')}>
+                  View customers
+                </button>
+              </div>
+              <div className="credit-balance">
+                <strong>GMD {formatGMD(dashboardActivity.outstandingCredit)}</strong>
+                <span>currently outstanding</span>
+              </div>
+            </article>
+            <article className="dashboard-panel">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2>Needs Attention</h2>
+                  <p>Existing conditions that may need action</p>
+                </div>
+              </div>
+              <div className="attention-list">
+                <div>
+                  <strong>{lowStockProducts.length} low-stock product{lowStockProducts.length === 1 ? '' : 's'}</strong>
+                  <span>{lowStockProducts.length ? lowStockProducts.slice(0, 2).map((product) => product.name).join(', ') : 'Stock levels look good.'}</span>
+                </div>
+                {dashboardActivity.outstandingCredit > 0 && (
+                  <div>
+                    <strong>Outstanding customer credit</strong>
+                    <span>GMD {formatGMD(dashboardActivity.outstandingCredit)} requires follow-up.</span>
+                  </div>
+                )}
+              </div>
+            </article>
+          </section>
+        )}
 
+        {!canViewDashboardFinancials && (
+          <section className="dashboard-panel">
+            <div className="dashboard-panel-heading">
+              <div>
+                <h2>Needs Attention</h2>
+                <p>Existing store conditions that may need action</p>
+              </div>
+            </div>
+            <div className="attention-list">
+              <div>
+                <strong>{lowStockProducts.length} low-stock product{lowStockProducts.length === 1 ? '' : 's'}</strong>
+                <span>{lowStockProducts.length ? 'Let a manager know before stock runs out.' : 'Stock levels look good.'}</span>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {canViewDashboardFinancials && (
+          <section className="dashboard-panel dashboard-panel--actions">
+            <div className="dashboard-panel-heading">
+              <div>
+                <h2>Quick Actions</h2>
+                <p>Continue with a common business task</p>
+              </div>
+            </div>
+            <div className="dashboard-actions">
+              <button className="primary-button" onClick={() => openOwnerPage('pos')}>Open POS</button>
+              <button className="secondary-button" onClick={() => openOwnerPage('purchases')}>Record purchase</button>
+              <button className="secondary-button" onClick={() => openOwnerPage('products')}>Manage products</button>
+            </div>
+          </section>
+        )}
+      </main>
     </div>
   );
 }
