@@ -2,6 +2,7 @@ import {
   FormEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -609,6 +610,27 @@ export default function App() {
 
   const [posSearch, setPosSearch] =
     useState('');
+
+  const [posBarcode, setPosBarcode] =
+    useState('');
+
+  const [cameraScannerOpen, setCameraScannerOpen] =
+    useState(false);
+
+  const cameraVideoRef =
+    useRef<HTMLVideoElement | null>(null);
+
+  const cameraStreamRef =
+    useRef<MediaStream | null>(null);
+
+  const cameraScanTimerRef =
+    useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const cameraScanInFlightRef =
+    useRef(false);
+
+  const lastBarcodeScanRef =
+    useRef<{ value: string; at: number } | null>(null);
 
   const [posCart, setPosCart] =
     useState<POSCartItem[]>([]);
@@ -1279,7 +1301,9 @@ export default function App() {
       return;
     }
 
-    const productData = (productsResult.data || []) as Product[];
+    const productData = mapProductsWithPrimaryImage(
+      productsResult.data || []
+    );
     const inventoryData = (inventoryResult.data || []) as InventoryRow[];
     const salesData = (salesResult.data || []) as Array<{
       id: string;
@@ -1347,6 +1371,19 @@ export default function App() {
    * ========================================================
    */
 
+  function mapProductsWithPrimaryImage(rows: any[]): Product[] {
+    return rows.map((row: any) => {
+      const images = row.product_images || [];
+      const primary =
+        images.find((image: any) => image.is_primary) || images[0];
+
+      return {
+        ...row,
+        image_url: primary?.image_url || null,
+      };
+    }) as Product[];
+  }
+
   async function loadProducts(
     businessId: string
   ) {
@@ -1369,18 +1406,9 @@ export default function App() {
     if (error) {
       setError(error.message);
     } else {
-      const mapped = (data || []).map((row: any) => {
-        const images = row.product_images || [];
-        const primary =
-          images.find((img: any) => img.is_primary) || images[0];
-
-        return {
-          ...row,
-          image_url: primary?.image_url || null,
-        };
-      });
-
-      setProducts(mapped as Product[]);
+      setProducts(
+        mapProductsWithPrimaryImage(data || [])
+      );
     }
 
     setLoadingProducts(false);
@@ -2937,7 +2965,7 @@ export default function App() {
       supabase
         .from('products')
         .select(
-          'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active'
+          'id, business_id, category_id, name, sku, barcode, description, selling_price, cost_price, low_stock_threshold, is_active, product_images(image_url, is_primary)'
         )
         .eq('business_id', businessId)
         .eq('is_active', true)
@@ -3028,6 +3056,149 @@ export default function App() {
     });
 
     setPosStock(stockMap);
+  }
+
+  function submitBarcodeToPOS(value: string) {
+    const barcode = value.trim();
+
+    if (!barcode) {
+      setError('Enter or scan a barcode first.');
+      return false;
+    }
+
+    const now = Date.now();
+    const previous = lastBarcodeScanRef.current;
+    if (
+      previous &&
+      previous.value === barcode &&
+      now - previous.at < 1200
+    ) {
+      return false;
+    }
+
+    lastBarcodeScanRef.current = { value: barcode, at: now };
+
+    const product = posProducts.find(
+      (item) =>
+        item.is_active &&
+        item.barcode?.trim() === barcode
+    );
+
+    if (!product) {
+      setError(
+        `No active product matches barcode "${barcode}". Check the barcode and try again.`
+      );
+      return false;
+    }
+
+    addToPOSCart(product);
+    setPosBarcode('');
+    setPosSearch('');
+    return true;
+  }
+
+  function stopCameraScanner() {
+    if (cameraScanTimerRef.current) {
+      clearInterval(cameraScanTimerRef.current);
+      cameraScanTimerRef.current = null;
+    }
+
+    cameraScanInFlightRef.current = false;
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = null;
+    }
+
+    setCameraScannerOpen(false);
+  }
+
+  async function startCameraScanner() {
+    if (
+      typeof window === 'undefined' ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      setError(
+        'Camera scanning is not available in this browser. Use the barcode field or a keyboard scanner instead.'
+      );
+      return;
+    }
+
+    const BarcodeDetectorConstructor = (window as any).BarcodeDetector;
+    if (!BarcodeDetectorConstructor) {
+      setError(
+        'Camera barcode scanning is not supported by this browser. Use the barcode field or a keyboard scanner instead.'
+      );
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+        },
+        audio: false,
+      });
+
+      cameraStreamRef.current = stream;
+      setCameraScannerOpen(true);
+      setError('');
+
+      window.setTimeout(() => {
+        const video = cameraVideoRef.current;
+        if (!video || !cameraStreamRef.current) return;
+
+        video.srcObject = cameraStreamRef.current;
+        void video.play().catch(() => {
+          setError('Camera preview could not start. Check camera permissions and try again.');
+          stopCameraScanner();
+        });
+
+        const detector = new BarcodeDetectorConstructor({
+          formats: [
+            'code_128',
+            'code_39',
+            'code_93',
+            'codabar',
+            'ean_13',
+            'ean_8',
+            'itf',
+            'upc_a',
+            'upc_e',
+          ],
+        });
+
+        cameraScanTimerRef.current = window.setInterval(async () => {
+          const activeVideo = cameraVideoRef.current;
+          if (
+            !activeVideo ||
+            activeVideo.readyState < 2 ||
+            cameraScanInFlightRef.current
+          ) {
+            return;
+          }
+
+          cameraScanInFlightRef.current = true;
+          try {
+            const results = await detector.detect(activeVideo);
+            const barcode = results[0]?.rawValue;
+            if (barcode && submitBarcodeToPOS(barcode)) {
+              stopCameraScanner();
+            }
+          } catch {
+            // A frame can fail while the camera is initializing; keep scanning.
+          } finally {
+            cameraScanInFlightRef.current = false;
+          }
+        }, 350);
+      }, 0);
+    } catch {
+      setError(
+        'Camera access was unavailable. Allow camera permission and try again, or use the barcode field.'
+      );
+      stopCameraScanner();
+    }
   }
 
   function addToPOSCart(product: Product) {
@@ -7394,13 +7565,69 @@ export default function App() {
                   }}
                 >
                   <div>
-                    <input
-                      className="product-search"
-                      placeholder="Search product, SKU or barcode..."
-                      value={posSearch}
-                      onChange={(e) => setPosSearch(e.target.value)}
-                      autoFocus
-                    />
+                    <div className="pos-search-controls">
+                      <input
+                        className="product-search"
+                        placeholder="Search product or SKU..."
+                        value={posSearch}
+                        onChange={(e) => setPosSearch(e.target.value)}
+                        autoFocus
+                      />
+
+                      <form
+                        className="pos-barcode-entry"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          submitBarcodeToPOS(posBarcode);
+                        }}
+                      >
+                        <input
+                          aria-label="Barcode"
+                          placeholder="Enter or scan barcode"
+                          value={posBarcode}
+                          onChange={(event) => setPosBarcode(event.target.value)}
+                          disabled={posCompleting}
+                        />
+                        <button
+                          className="secondary-button"
+                          type="submit"
+                          disabled={posCompleting}
+                        >
+                          Add barcode
+                        </button>
+                      </form>
+
+                      <button
+                        className="secondary-button pos-camera-button"
+                        type="button"
+                        onClick={startCameraScanner}
+                        disabled={posCompleting || cameraScannerOpen}
+                      >
+                        Scan Barcode
+                      </button>
+                    </div>
+
+                    {cameraScannerOpen && (
+                      <div className="pos-camera-scanner">
+                        <div>
+                          <strong>Camera barcode scanner</strong>
+                          <p>Point the camera at one barcode. Scanning stops after a product is added.</p>
+                        </div>
+                        <video
+                          ref={cameraVideoRef}
+                          autoPlay
+                          muted
+                          playsInline
+                        />
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={stopCameraScanner}
+                        >
+                          Stop camera
+                        </button>
+                      </div>
+                    )}
 
                     {posLoading ? (
                       <div className="empty-card">Loading POS products...</div>
@@ -7423,17 +7650,30 @@ export default function App() {
                           return (
                             <button
                               key={product.id}
-                              className="business-card"
+                              className="business-card pos-product-card"
                               onClick={() => addToPOSCart(product)}
                               disabled={stock <= inCart || posCompleting}
                               style={{ textAlign: 'left', cursor: stock > inCart ? 'pointer' : 'not-allowed' }}
                             >
-                              <div className="business-icon">🛒</div>
+                              <div className="pos-product-photo">
+                                {product.image_url ? (
+                                  <img
+                                    src={product.image_url}
+                                    alt={product.name}
+                                    onError={(event) => {
+                                      event.currentTarget.style.display = 'none';
+                                      event.currentTarget.parentElement?.classList.add('is-image-missing');
+                                    }}
+                                  />
+                                ) : (
+                                  <span aria-hidden="true">📦</span>
+                                )}
+                              </div>
                               <div className="business-info">
                                 <h3>{product.name}</h3>
                                 <p>GMD {formatGMD(Number(product.selling_price))}</p>
                                 <p>
-                                  Stock: {stock}
+                                  Available: {stock}
                                   {inCart > 0 ? ` · Cart: ${inCart}` : ''}
                                 </p>
                               </div>
