@@ -307,6 +307,7 @@ type OwnerPage =
   | 'pos'
   | 'sales'
   | 'purchases'
+  | 'expenses'
   | 'returns'
   | 'customers'
   | 'reports'
@@ -1736,6 +1737,7 @@ export default function App() {
       { key: 'products', label: 'Products', icon: '📦', adminOnly: true },
       { key: 'inventory', label: 'Inventory', icon: '📋', adminOnly: true },
       { key: 'purchases', label: 'Purchases', icon: '🚚', adminOnly: true },
+      { key: 'expenses', label: 'Expenses', icon: '💳', adminOnly: true },
       { key: 'returns', label: 'Returns & Refunds', icon: '↩️', adminOnly: true },
       { key: 'reports', label: 'Reports', icon: '📈', adminOnly: true },
       { key: 'staff', label: 'Staff', icon: '👥', adminOnly: true },
@@ -1892,7 +1894,7 @@ export default function App() {
       await loadSalesHistory(ownerBusiness.id);
     }
 
-    if (page === 'purchases') {
+    if (page === 'purchases' || page === 'expenses') {
       await Promise.all([
         loadProducts(ownerBusiness.id),
         loadBranches(ownerBusiness.id),
@@ -8528,7 +8530,9 @@ export default function App() {
    * ========================================================
    */
 
-  if (ownerPage === 'purchases') {
+  if (ownerPage === 'purchases' || ownerPage === 'expenses') {
+    const isExpensesPage = ownerPage === 'expenses';
+
     return (
       <div className="dashboard-page has-sidebar">
         <Sidebar />
@@ -8556,15 +8560,15 @@ export default function App() {
 
           <div className="page-header">
             <div>
-              <h1>Purchases</h1>
-              <p>Record goods bought in for the shop.</p>
+              <h1>{isExpensesPage ? 'Expenses' : 'Purchases'}</h1>
+              <p>{isExpensesPage ? 'Record and review business expenses using the existing purchase records.' : 'Record goods bought in for the shop.'}</p>
             </div>
           </div>
 
           {error && <div className="error">{error}</div>}
 
           <div className="card" style={{ marginBottom: '20px' }}>
-            <h3 style={{ marginTop: 0 }}>Record a new purchase</h3>
+            <h3 style={{ marginTop: 0 }}>{isExpensesPage ? 'Record a new expense' : 'Record a new purchase'}</h3>
 
             <label>Branch</label>
             <select
@@ -8678,22 +8682,22 @@ export default function App() {
               onClick={submitPurchase}
               disabled={creatingPurchase || purchaseCart.length === 0}
             >
-              {creatingPurchase ? 'Recording...' : 'Record Purchase'}
+              {creatingPurchase ? 'Recording...' : isExpensesPage ? 'Record Expense' : 'Record Purchase'}
             </button>
           </div>
 
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Recent purchases</h3>
+            <h3 style={{ marginTop: 0 }}>{isExpensesPage ? 'Recent expenses' : 'Recent purchases'}</h3>
             {loadingPurchases ? (
               <p>Loading...</p>
             ) : purchases.length === 0 ? (
-              <p>No purchases recorded yet. Record your first stock purchase above to add inventory to a branch.</p>
+              <p>{isExpensesPage ? 'No expenses recorded yet. Record your first expense above.' : 'No purchases recorded yet. Record your first stock purchase above to add inventory to a branch.'}</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Purchase #</th>
+                      <th>{isExpensesPage ? 'Expense #' : 'Purchase #'}</th>
                       <th>Date</th>
                       <th>Total</th>
                       <th>Status</th>
