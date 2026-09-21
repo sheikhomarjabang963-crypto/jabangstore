@@ -1807,3 +1807,125 @@ select:focus-visible {
     gap: 10px;
   }
 }
+
+
+/* POS product lookup, barcode entry, and camera scanner */
+.pos-search-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.pos-search-controls .product-search {
+  min-width: 0;
+  margin: 0;
+}
+
+.pos-barcode-entry {
+  display: flex;
+  gap: 8px;
+  min-width: min(100%, 360px);
+}
+
+.pos-barcode-entry input {
+  min-width: 0;
+  width: 190px;
+  height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+}
+
+.pos-camera-button {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.pos-camera-scanner {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--green-light);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.pos-camera-scanner p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pos-camera-scanner video {
+  width: min(100%, 440px);
+  max-height: 300px;
+  background: #13211c;
+  border-radius: 10px;
+}
+
+.pos-camera-scanner .secondary-button {
+  justify-self: start;
+}
+
+.pos-product-card {
+  align-items: center;
+}
+
+.pos-product-photo {
+  display: grid;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  place-items: center;
+  background: var(--green-light);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--green);
+  font-size: 24px;
+}
+
+.pos-product-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pos-product-photo.is-image-missing::after {
+  content: '📦';
+  font-size: 24px;
+}
+
+@media (max-width: 700px) {
+  .pos-search-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .pos-barcode-entry {
+    width: 100%;
+  }
+
+  .pos-barcode-entry input {
+    width: 100%;
+  }
+
+  .pos-camera-button {
+    grid-column: auto;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 420px) {
+  .pos-barcode-entry {
+    flex-direction: column;
+  }
+
+  .pos-barcode-entry .secondary-button,
+  .pos-camera-button {
+    width: 100%;
+  }
+}
