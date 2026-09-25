@@ -122,11 +122,12 @@ type DashboardSale = {
   created_at: string;
 };
 
-type DashboardPurchase = {
+type DashboardExpense = {
   id: string;
-  purchase_number: string;
-  total: number;
-  status: string;
+  category: string;
+  description: string | null;
+  amount: number;
+  expense_date: string;
   created_at: string;
 };
 
@@ -139,7 +140,7 @@ type DashboardActivity = {
   todayTransactions: number;
   todayExpenses: number;
   recentSales: DashboardSale[];
-  recentExpenses: DashboardPurchase[];
+  recentExpenses: DashboardExpense[];
   payments: DashboardPayment[];
   outstandingCredit: number;
 };
@@ -260,6 +261,24 @@ type PurchaseRecord = {
   created_at: string;
 };
 
+type ExpenseRecord = {
+  id: string;
+  category: string;
+  description: string | null;
+  amount: number;
+  expense_date: string;
+  created_at: string;
+};
+
+const EXPENSE_CATEGORIES = [
+  'rent',
+  'utilities',
+  'salaries',
+  'marketing',
+  'transport',
+  'other',
+] as const;
+
 type SaleForReturn = {
   id: string;
   sale_number: string;
@@ -298,6 +317,7 @@ type ReportsData = {
   allTimeSalesCount: number;
   allTimeRevenue: number;
   totalPurchasesValue: number;
+  totalExpensesValue: number;
   topProducts: TopProduct[];
 };
 
@@ -743,6 +763,33 @@ export default function App() {
     useState('0');
 
   const [creatingPurchase, setCreatingPurchase] =
+    useState(false);
+
+  /*
+   * ========================================================
+   * EXPENSES STATE
+   * ========================================================
+   */
+
+  const [expensesList, setExpensesList] =
+    useState<ExpenseRecord[]>([]);
+
+  const [loadingExpenses, setLoadingExpenses] =
+    useState(false);
+
+  const [expenseCategory, setExpenseCategory] =
+    useState<typeof EXPENSE_CATEGORIES[number]>('other');
+
+  const [expenseDescription, setExpenseDescription] =
+    useState('');
+
+  const [expenseAmount, setExpenseAmount] =
+    useState('');
+
+  const [expenseDate, setExpenseDate] =
+    useState(() => new Date().toISOString().slice(0, 10));
+
+  const [creatingExpense, setCreatingExpense] =
     useState(false);
 
   /*
@@ -1226,7 +1273,7 @@ export default function App() {
       salesResult,
       inventoryResult,
       recentSalesResult,
-      purchasesResult,
+      expensesResult,
       paymentsResult,
       creditResult,
     ] = await Promise.all([
@@ -1269,22 +1316,29 @@ export default function App() {
         .order('created_at', { ascending: false })
         .limit(5),
 
+      // Operating expenses (rent, utilities, salaries, etc.) come from the
+      // dedicated "expenses" table via create_expense — these are distinct
+      // from stock purchases, which stay on the Purchases page/table.
       canViewFinancials
         ? supabase
-            .from('purchases')
-            .select('id, purchase_number, total, status, created_at')
+            .from('expenses')
+            .select('id, category, description, amount, expense_date, created_at')
             .eq('business_id', businessId)
             .order('created_at', { ascending: false })
-            .limit(5)
         : Promise.resolve({ data: [], error: null }),
 
+      // Cash actually collected today. Filtered on the payment's own
+      // business_id/created_at (not the parent sale's created_at) so a
+      // payment made today against an older credit sale is still counted,
+      // and a sale created today but not yet paid is not counted as cash.
+      // Still joins sales to exclude payments left behind on voided sales.
       canViewFinancials
         ? supabase
             .from('payments')
-            .select('payment_method, amount, sales!inner(business_id, created_at, status)')
-            .eq('sales.business_id', businessId)
+            .select('payment_method, amount, sales!inner(status)')
+            .eq('business_id', businessId)
             .neq('sales.status', 'voided')
-            .gte('sales.created_at', startOfDay.toISOString())
+            .gte('created_at', startOfDay.toISOString())
         : Promise.resolve({ data: [], error: null }),
 
       canViewFinancials
@@ -1334,12 +1388,19 @@ export default function App() {
       return stock <= Number(product.low_stock_threshold);
     });
 
-    const purchasesData = purchasesResult.error
+    const expensesData = expensesResult.error
       ? []
-      : ((purchasesResult.data || []) as DashboardPurchase[]);
-    const todayExpenses = purchasesData
-      .filter((purchase) => new Date(purchase.created_at) >= startOfDay)
-      .reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
+      : ((expensesResult.data || []) as DashboardExpense[]);
+    // Use expense_date (the date the expense pertains to, can be backdated
+    // by an owner/manager) rather than created_at, so "today" reflects the
+    // business date of the expense, not when it happened to be entered.
+    const todayDateStr = `${startOfDay.getFullYear()}-${String(
+      startOfDay.getMonth() + 1
+    ).padStart(2, '0')}-${String(startOfDay.getDate()).padStart(2, '0')}`;
+    const todayExpenses = expensesData
+      .filter((expense) => expense.expense_date === todayDateStr)
+      .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const recentExpenses = expensesData.slice(0, 5);
 
     const paymentData = paymentsResult.error
       ? []
@@ -1369,7 +1430,7 @@ export default function App() {
       ).length,
       todayExpenses,
       recentSales: (recentSalesResult.data || []) as DashboardSale[],
-      recentExpenses: purchasesData,
+      recentExpenses,
       payments: paymentData,
       outstandingCredit,
     });
@@ -1726,6 +1787,15 @@ export default function App() {
     return myBusinessRole === 'owner' || myBusinessRole === 'manager';
   }
 
+  // Writes to branches, staff_invites, and business_members are
+  // owner-only at the RLS layer, but the Settings/Staff pages
+  // themselves are visible to owner+manager (isBusinessAdminTier).
+  // Gate the actual write controls to owner-tier so a Manager sees a
+  // read-only view instead of an interactive form that always fails.
+  function isBusinessOwnerTier() {
+    return myBusinessRole === 'owner' || superAdminStoreView;
+  }
+
   function roleBadgeLabel() {
     if (superAdminStoreView) return 'Super Admin (Operating Store)';
 
@@ -1782,7 +1852,10 @@ export default function App() {
     ];
 
     const visibleItems = items.filter(
-      (item) => !item.adminOnly || isBusinessAdminTier()
+      (item) =>
+        !item.adminOnly ||
+        isBusinessAdminTier() ||
+        (myBusinessRole === 'inventory_staff' && item.key === 'inventory')
     );
 
     return (
@@ -1871,7 +1944,11 @@ export default function App() {
 
     if (
       !isBusinessAdminTier() &&
-      !CASHIER_TIER_PAGES.includes(page)
+      !CASHIER_TIER_PAGES.includes(page) &&
+      // inventory_staff can call every inventory RPC server-side
+      // (owner/manager/inventory_staff); let them reach the one page
+      // built for that role.
+      !(myBusinessRole === 'inventory_staff' && page === 'inventory')
     ) {
       setError(
         `Your role (${roleBadgeLabel()}) doesn't have access to that section.`
@@ -1935,11 +2012,18 @@ export default function App() {
       await loadSalesHistory(ownerBusiness.id);
     }
 
-    if (page === 'purchases' || page === 'expenses') {
+    if (page === 'purchases') {
       await Promise.all([
         loadProducts(ownerBusiness.id),
         loadBranches(ownerBusiness.id),
         loadPurchases(ownerBusiness.id),
+      ]);
+    }
+
+    if (page === 'expenses') {
+      await Promise.all([
+        loadBranches(ownerBusiness.id),
+        loadExpenses(ownerBusiness.id),
       ]);
     }
 
@@ -3964,6 +4048,85 @@ export default function App() {
 
   /*
    * ========================================================
+   * EXPENSES
+   * ========================================================
+   */
+
+  async function loadExpenses(businessId: string) {
+    setLoadingExpenses(true);
+    setError('');
+
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('id, category, description, amount, expense_date, created_at')
+      .eq('business_id', businessId)
+      .order('expense_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setExpensesList((data || []) as ExpenseRecord[]);
+    }
+
+    setLoadingExpenses(false);
+  }
+
+  async function submitExpense() {
+    if (!ownerBusiness) return;
+
+    const amount = Number(expenseAmount || 0);
+
+    if (!expenseCategory) {
+      setError('Please select a category.');
+      return;
+    }
+
+    if (amount <= 0) {
+      setError('Amount must be greater than zero.');
+      return;
+    }
+
+    if (!expenseDate) {
+      setError('Please select an expense date.');
+      return;
+    }
+
+    setCreatingExpense(true);
+    setError('');
+
+    const { error } = await supabase.rpc('create_expense', {
+      target_business_id: ownerBusiness.id,
+      target_category: expenseCategory,
+      target_amount: amount,
+      target_expense_date: expenseDate,
+      target_branch_id: selectedBranch || null,
+      target_description: expenseDescription || null,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setExpenseCategory('other');
+      setExpenseDescription('');
+      setExpenseAmount('');
+      setExpenseDate(new Date().toISOString().slice(0, 10));
+      await loadExpenses(ownerBusiness.id);
+
+      // Refresh dashboard figures if they're already loaded, so Today's
+      // Expenses / Net Cash Flow / Recent Expenses reflect this entry
+      // immediately without requiring a manual dashboard refresh.
+      if (ownerBusiness?.id) {
+        await loadOwnerDashboard(ownerBusiness.id);
+      }
+    }
+
+    setCreatingExpense(false);
+  }
+
+  /*
+   * ========================================================
    * RETURNS / REFUNDS
    * ========================================================
    */
@@ -4131,6 +4294,7 @@ export default function App() {
       allSalesResult,
       todaySalesResult,
       purchasesResult,
+      expensesResult,
       saleItemsResult,
     ] = await Promise.all([
       supabase
@@ -4147,6 +4311,10 @@ export default function App() {
       supabase
         .from('purchases')
         .select('total')
+        .eq('business_id', businessId),
+      supabase
+        .from('expenses')
+        .select('amount')
         .eq('business_id', businessId),
       supabase
         .from('sale_items')
@@ -4172,6 +4340,11 @@ export default function App() {
 
     const totalPurchasesValue = (purchasesResult.data || []).reduce(
       (sum: number, row: any) => sum + Number(row.total || 0),
+      0
+    );
+
+    const totalExpensesValue = (expensesResult.data || []).reduce(
+      (sum: number, row: any) => sum + Number(row.amount || 0),
       0
     );
 
@@ -4203,6 +4376,7 @@ export default function App() {
       allTimeSalesCount: allSalesResult.count || 0,
       allTimeRevenue,
       totalPurchasesValue,
+      totalExpensesValue,
       topProducts,
     });
 
@@ -8068,23 +8242,31 @@ export default function App() {
               }}
             >
               <h3 style={{ margin: 0 }}>Branches</h3>
-              <button
-                className="primary-button"
-                onClick={() => {
-                  if (showBranchForm) {
-                    resetBranchForm();
-                  } else {
-                    setEditingBranchId(null);
-                    setShowBranchForm(true);
-                    setError('');
-                  }
-                }}
-              >
-                {showBranchForm ? 'Cancel' : '+ Add Branch'}
-              </button>
+              {isBusinessOwnerTier() && (
+                <button
+                  className="primary-button"
+                  onClick={() => {
+                    if (showBranchForm) {
+                      resetBranchForm();
+                    } else {
+                      setEditingBranchId(null);
+                      setShowBranchForm(true);
+                      setError('');
+                    }
+                  }}
+                >
+                  {showBranchForm ? 'Cancel' : '+ Add Branch'}
+                </button>
+              )}
             </div>
 
-            {showBranchForm && (
+            {!isBusinessOwnerTier() && (
+              <p style={{ fontSize: '13px', color: 'var(--muted)', marginTop: 0 }}>
+                Only the business owner can add or edit branches.
+              </p>
+            )}
+
+            {isBusinessOwnerTier() && showBranchForm && (
               <form
                 onSubmit={submitBranchForm}
                 style={{ marginBottom: '18px' }}
@@ -8160,13 +8342,17 @@ export default function App() {
                         <td>{branch.address || '—'}</td>
                         <td>{branch.phone || '—'}</td>
                         <td>
-                          <button
-                            className="secondary-button"
-                            onClick={() => startEditBranch(branch)}
-                            type="button"
-                          >
-                            Edit
-                          </button>
+                          {isBusinessOwnerTier() ? (
+                            <button
+                              className="secondary-button"
+                              onClick={() => startEditBranch(branch)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -8340,6 +8526,14 @@ export default function App() {
 
           {error && <div className="error">{error}</div>}
 
+          {!isBusinessOwnerTier() && (
+            <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
+              Only the business owner can invite, change, or remove staff.
+              You can view the current team below.
+            </p>
+          )}
+
+          {isBusinessOwnerTier() && (
           <div className="card" style={{ marginBottom: '20px' }}>
             <h3 style={{ marginTop: 0 }}>Invite a staff member</h3>
             <p style={{ fontSize: '13px', color: 'var(--muted)', marginTop: 0 }}>
@@ -8398,8 +8592,9 @@ export default function App() {
               </button>
             </form>
           </div>
+          )}
 
-          {staffInvites.length > 0 && (
+          {isBusinessOwnerTier() && staffInvites.length > 0 && (
             <div className="card" style={{ marginBottom: '20px' }}>
               <h3 style={{ marginTop: 0 }}>Pending invites</h3>
               <div className="table-wrapper">
@@ -8465,9 +8660,9 @@ export default function App() {
                       <tr key={member.member_id}>
                         <td>{member.email}</td>
                         <td>
-                          {member.role === 'owner' ? (
+                          {member.role === 'owner' || !isBusinessOwnerTier() ? (
                             <span style={{ textTransform: 'capitalize' }}>
-                              {member.role}
+                              {member.role.replace('_', ' ')}
                             </span>
                           ) : (
                             <select
@@ -8487,6 +8682,9 @@ export default function App() {
                         <td>
                           {member.role === 'owner' ? (
                             'All branches'
+                          ) : !isBusinessOwnerTier() ? (
+                            branches.find((b) => b.id === member.assigned_branch_id)
+                              ?.name || 'Any branch'
                           ) : (
                             <select
                               value={member.assigned_branch_id || ''}
@@ -8505,7 +8703,7 @@ export default function App() {
                         </td>
                         <td>{new Date(member.joined_at).toLocaleDateString()}</td>
                         <td>
-                          {member.role !== 'owner' && (
+                          {member.role !== 'owner' && isBusinessOwnerTier() && (
                             <button
                               className="secondary-button"
                               type="button"
@@ -8783,9 +8981,7 @@ export default function App() {
    * ========================================================
    */
 
-  if (ownerPage === 'purchases' || ownerPage === 'expenses') {
-    const isExpensesPage = ownerPage === 'expenses';
-
+  if (ownerPage === 'purchases') {
     return (
       <div className="dashboard-page has-sidebar">
         <Sidebar />
@@ -8813,15 +9009,15 @@ export default function App() {
 
           <div className="page-header">
             <div>
-              <h1>{isExpensesPage ? 'Expenses' : 'Purchases'}</h1>
-              <p>{isExpensesPage ? 'Record and review business expenses using the existing purchase records.' : 'Record goods bought in for the shop.'}</p>
+              <h1>Purchases</h1>
+              <p>Record goods bought in for the shop.</p>
             </div>
           </div>
 
           {error && <div className="error">{error}</div>}
 
           <div className="card" style={{ marginBottom: '20px' }}>
-            <h3 style={{ marginTop: 0 }}>{isExpensesPage ? 'Record a new expense' : 'Record a new purchase'}</h3>
+            <h3 style={{ marginTop: 0 }}>Record a new purchase</h3>
 
             <label>Branch</label>
             <select
@@ -8935,22 +9131,22 @@ export default function App() {
               onClick={submitPurchase}
               disabled={creatingPurchase || purchaseCart.length === 0}
             >
-              {creatingPurchase ? 'Recording...' : isExpensesPage ? 'Record Expense' : 'Record Purchase'}
+              {creatingPurchase ? 'Recording...' : 'Record Purchase'}
             </button>
           </div>
 
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>{isExpensesPage ? 'Recent expenses' : 'Recent purchases'}</h3>
+            <h3 style={{ marginTop: 0 }}>Recent purchases</h3>
             {loadingPurchases ? (
               <p>Loading...</p>
             ) : purchases.length === 0 ? (
-              <p>{isExpensesPage ? 'No expenses recorded yet. Record your first expense above.' : 'No purchases recorded yet. Record your first stock purchase above to add inventory to a branch.'}</p>
+              <p>No purchases recorded yet. Record your first stock purchase above to add inventory to a branch.</p>
             ) : (
               <div className="table-wrapper">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>{isExpensesPage ? 'Expense #' : 'Purchase #'}</th>
+                      <th>Purchase #</th>
                       <th>Date</th>
                       <th>Total</th>
                       <th>Status</th>
@@ -8965,6 +9161,147 @@ export default function App() {
                         </td>
                         <td>GMD {formatGMD(purchase.total)}</td>
                         <td>{purchase.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (ownerPage === 'expenses') {
+    return (
+      <div className="dashboard-page has-sidebar">
+        <Sidebar />
+        <MobileTopBar />
+        <header className="topbar">
+          <div>
+            <div className="brand">
+              Jabang<span>Store</span>
+            </div>
+            <small>{ownerBusiness.name}</small>
+            <div><RoleBadge /></div>
+          </div>
+          <button className="logout-button" onClick={handleLogout}>
+            Sign out
+          </button>
+        </header>
+
+        <main className="admin-content">
+          <button
+            className="secondary-button"
+            onClick={() => openOwnerPage('dashboard')}
+          >
+            ← Dashboard
+          </button>
+
+          <div className="page-header">
+            <div>
+              <h1>Expenses</h1>
+              <p>Record and review operating expenses like rent, utilities, and salaries.</p>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginTop: 0 }}>Record a new expense</h3>
+
+            <label>Branch (optional)</label>
+            <select
+              value={selectedBranch}
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              style={{ width: '100%', marginBottom: '14px' }}
+            >
+              <option value="">No specific branch</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+
+            <label>Category</label>
+            <select
+              value={expenseCategory}
+              onChange={(e) =>
+                setExpenseCategory(e.target.value as typeof EXPENSE_CATEGORIES[number])
+              }
+              style={{ width: '100%', marginBottom: '14px' }}
+            >
+              {EXPENSE_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category.charAt(0).toUpperCase() + category.slice(1)}
+                </option>
+              ))}
+            </select>
+
+            <label>Amount (GMD)</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0.00"
+              value={expenseAmount}
+              onChange={(e) => setExpenseAmount(e.target.value)}
+              style={{ width: '100%', marginBottom: '14px' }}
+            />
+
+            <label>Expense date</label>
+            <input
+              type="date"
+              value={expenseDate}
+              onChange={(e) => setExpenseDate(e.target.value)}
+              style={{ width: '100%', marginBottom: '14px' }}
+            />
+
+            <label>Description (optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. September shop rent"
+              value={expenseDescription}
+              onChange={(e) => setExpenseDescription(e.target.value)}
+              style={{ width: '100%', marginBottom: '14px' }}
+            />
+
+            <button
+              className="primary-button"
+              onClick={submitExpense}
+              disabled={creatingExpense || !expenseAmount}
+            >
+              {creatingExpense ? 'Recording...' : 'Record Expense'}
+            </button>
+          </div>
+
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Recent expenses</h3>
+            {loadingExpenses ? (
+              <p>Loading...</p>
+            ) : expensesList.length === 0 ? (
+              <p>No expenses recorded yet. Record your first expense above.</p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Category</th>
+                      <th>Description</th>
+                      <th>Date</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expensesList.map((expense) => (
+                      <tr key={expense.id}>
+                        <td>
+                          {expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}
+                        </td>
+                        <td>{expense.description || '—'}</td>
+                        <td>{expense.expense_date}</td>
+                        <td>GMD {formatGMD(expense.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -9207,6 +9544,14 @@ export default function App() {
                     <p>GMD {formatGMD(reportsData.totalPurchasesValue)}</p>
                   </div>
                 </article>
+
+                <article className="business-card">
+                  <div className="business-icon">💳</div>
+                  <div className="business-info">
+                    <h3>Operating Expenses</h3>
+                    <p>GMD {formatGMD(reportsData.totalExpensesValue)}</p>
+                  </div>
+                </article>
               </div>
 
               <div className="card">
@@ -9253,8 +9598,6 @@ export default function App() {
     myBusinessRole === 'owner' ||
     myBusinessRole === 'manager' ||
     superAdminStoreView;
-  const netCashFlow =
-    dashboardStats.todaySales - dashboardActivity.todayExpenses;
   const paymentSummary = dashboardActivity.payments.reduce(
     (summary: Record<string, number>, payment) => {
       summary[payment.payment_method] =
@@ -9267,6 +9610,10 @@ export default function App() {
     (sum, amount) => sum + amount,
     0
   );
+  // Cash actually collected today less operating expenses recorded today.
+  // Sales total is revenue, not cash received (a sale can be partially paid
+  // or fully on credit), so cash collected (paymentTotal) is used instead.
+  const netCashFlow = paymentTotal - dashboardActivity.todayExpenses;
   const chartMaximum = Math.max(
     dashboardStats.todaySales,
     dashboardActivity.todayExpenses,
@@ -9324,14 +9671,14 @@ export default function App() {
               <article className="dashboard-metric">
                 <span>Today's Expenses</span>
                 <strong>GMD {formatGMD(dashboardActivity.todayExpenses)}</strong>
-                <small>Recorded purchases today</small>
+                <small>Recorded operating expenses today</small>
               </article>
               <article className="dashboard-metric">
                 <span>Net Cash Flow</span>
                 <strong className={netCashFlow < 0 ? 'is-negative' : ''}>
                   GMD {formatGMD(netCashFlow)}
                 </strong>
-                <small>Sales less recorded purchases</small>
+                <small>Cash collected less recorded expenses</small>
               </article>
             </>
           )}
@@ -9428,25 +9775,27 @@ export default function App() {
               <div className="dashboard-panel-heading">
                 <div>
                   <h2>Recent Expenses</h2>
-                  <p>Most recently recorded purchases</p>
+                  <p>Most recently recorded operating expenses</p>
                 </div>
-                <button className="text-action" onClick={() => openOwnerPage('purchases')}>
-                  View purchases
+                <button className="text-action" onClick={() => openOwnerPage('expenses')}>
+                  View expenses
                 </button>
               </div>
               {dashboardActivity.recentExpenses.length === 0 ? (
-                <p className="dashboard-empty">No purchases recorded yet.</p>
+                <p className="dashboard-empty">No operating expenses recorded yet.</p>
               ) : (
                 <div className="activity-list">
-                  {dashboardActivity.recentExpenses.map((purchase) => (
-                    <div className="activity-row" key={purchase.id}>
+                  {dashboardActivity.recentExpenses.map((expense) => (
+                    <div className="activity-row" key={expense.id}>
                       <div>
-                        <strong>{purchase.purchase_number}</strong>
-                        <span>{new Date(purchase.created_at).toLocaleString()}</span>
+                        <strong>
+                          {expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}
+                        </strong>
+                        <span>{expense.description || new Date(expense.created_at).toLocaleDateString()}</span>
                       </div>
                       <div className="activity-row__amount">
-                        <strong>GMD {formatGMD(Number(purchase.total || 0))}</strong>
-                        <span>{purchase.status}</span>
+                        <strong>GMD {formatGMD(Number(expense.amount || 0))}</strong>
+                        <span>{expense.expense_date}</span>
                       </div>
                     </div>
                   ))}
