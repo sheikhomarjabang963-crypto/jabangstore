@@ -1267,6 +1267,14 @@ export default function App() {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
+    // Declared as `string` (not a literal) so TypeScript doesn't try to
+    // run Supabase's compile-time select-string parser against a
+    // ternary/union of two literals, which was producing a false-positive
+    // ParserError. The actual query sent to Supabase is unchanged.
+    const salesSelectColumns: string = canViewFinancials
+      ? 'id, sale_number, total, payment_status, created_at'
+      : 'id, sale_number, payment_status, created_at';
+
     const [
       productsResult,
       customersResult,
@@ -1291,11 +1299,7 @@ export default function App() {
 
       supabase
         .from('sales')
-        .select(
-          canViewFinancials
-            ? 'id, sale_number, total, payment_status, created_at'
-            : 'id, sale_number, payment_status, created_at'
-        )
+        .select(salesSelectColumns)
         .eq('business_id', businessId)
         .neq('status', 'voided'),
 
@@ -1306,11 +1310,7 @@ export default function App() {
 
       supabase
         .from('sales')
-        .select(
-          canViewFinancials
-            ? 'id, sale_number, total, payment_status, created_at'
-            : 'id, sale_number, payment_status, created_at'
-        )
+        .select(salesSelectColumns)
         .eq('business_id', businessId)
         .neq('status', 'voided')
         .order('created_at', { ascending: false })
@@ -1368,7 +1368,7 @@ export default function App() {
       productsResult.data || []
     );
     const inventoryData = (inventoryResult.data || []) as InventoryRow[];
-    const salesData = (salesResult.data || []) as Array<{
+    const salesData = (salesResult.data || []) as unknown as Array<{
       id: string;
       total?: number;
       created_at: string;
@@ -1415,7 +1415,7 @@ export default function App() {
 
     setProducts(productData);
     setInventory(inventoryData);
-    setRecentSales((recentSalesResult.data || []) as RecentSale[]);
+    setRecentSales((recentSalesResult.data || []) as unknown as RecentSale[]);
     setLowStockProducts(lowStock);
     setDashboardStats({
       products: productData.length,
@@ -1429,7 +1429,7 @@ export default function App() {
         (sale) => new Date(sale.created_at) >= startOfDay
       ).length,
       todayExpenses,
-      recentSales: (recentSalesResult.data || []) as DashboardSale[],
+      recentSales: (recentSalesResult.data || []) as unknown as DashboardSale[],
       recentExpenses,
       payments: paymentData,
       outstandingCredit,
@@ -3087,7 +3087,7 @@ export default function App() {
       return;
     }
 
-    const productData = (productsResult.data || []) as Product[];
+    const productData = mapProductsWithPrimaryImage(productsResult.data || []);
     const branchData = (branchesResult.data || []) as Branch[];
 
     setPosProducts(productData);
