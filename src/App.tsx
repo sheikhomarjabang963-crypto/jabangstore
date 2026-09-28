@@ -1232,7 +1232,8 @@ export default function App() {
       }
 
       await loadOwnerDashboard(
-        data.business_id
+        data.business_id,
+        data.role
       );
     }
 
@@ -1255,13 +1256,18 @@ export default function App() {
   }
 
   async function loadOwnerDashboard(
-    businessId: string
+    businessId: string,
+    roleOverride?: string | null
   ) {
     setError('');
 
+    // The role is passed in on the very first load, because the
+    // myBusinessRole state has not been committed yet at that point and
+    // would otherwise read as null (showing zeros until a manual refresh).
+    const effectiveRole = roleOverride ?? myBusinessRole;
     const canViewFinancials =
-      myBusinessRole === 'owner' ||
-      myBusinessRole === 'manager' ||
+      effectiveRole === 'owner' ||
+      effectiveRole === 'manager' ||
       superAdminStoreView;
 
     const startOfDay = new Date();
@@ -3393,25 +3399,71 @@ export default function App() {
     posSubtotal - posSaleDiscount
   );
 
-  const posReceived = posPayments.reduce(
+  // Anything typed in the payment box but not yet added with "+ Add" still
+  // counts, so the totals below are always live and a cashier who forgets to
+  // press "+ Add" doesn't accidentally turn a full payment into credit.
+  const posPendingAmount = Math.max(0, Number(posPaymentAmount || 0));
+
+  const posAllPayments: ReceiptPayment[] =
+    posPendingAmount > 0
+      ? [...posPayments, { method: posPaymentMethod, amount: posPendingAmount }]
+      : posPayments;
+
+  const posReceived = posAllPayments.reduce(
     (sum, payment) => sum + Number(payment.amount || 0),
     0
   );
 
-  const posChange = Math.max(
-    0,
-    posReceived - posTotal
-  );
+  const posChange = Math.max(0, posReceived - posTotal);
 
-  const posBalanceDue = Math.max(
-    0,
-    posTotal - posReceived
-  );
+  const posBalanceDue = Math.max(0, posTotal - posReceived);
+
+  const posCashTendered = posAllPayments
+    .filter((payment) => payment.method === 'cash')
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+
+  // Change can only be handed back in cash. If card / mobile money / bank
+  // transfer alone exceed the total, that is an over-payment we can't refund.
+  const posOverpaidNonCash = posChange > posCashTendered + 0.005;
+
+  // What actually gets recorded: tendered payments minus the change given
+  // back (taken off cash payments), so recorded payments never exceed the
+  // sale total and cash-collected reports stay accurate.
+  function netOfChange(payments: ReceiptPayment[], change: number) {
+    let remaining = change;
+    const adjusted = payments.map((payment) => ({ ...payment }));
+
+    for (let i = adjusted.length - 1; i >= 0 && remaining > 0; i--) {
+      if (adjusted[i].method !== 'cash') continue;
+      const deduction = Math.min(adjusted[i].amount, remaining);
+      adjusted[i].amount = Number((adjusted[i].amount - deduction).toFixed(2));
+      remaining = Number((remaining - deduction).toFixed(2));
+    }
+
+    return adjusted.filter((payment) => payment.amount > 0);
+  }
+
+  function paymentMethodLabel(method: string) {
+    switch (method) {
+      case 'cash':
+        return 'Cash';
+      case 'mobile_money':
+        return 'Mobile Money';
+      case 'card':
+        return 'Card';
+      case 'bank_transfer':
+        return 'Bank Transfer';
+      default:
+        return method;
+    }
+  }
 
   function addPosPayment() {
     setError('');
 
-    const amount = Number(posPaymentAmount || 0);
+    // Empty amount = pay the remaining balance with this method.
+    const amount =
+      posPendingAmount > 0 ? posPendingAmount : posBalanceDue;
 
     if (amount <= 0) {
       setError('Enter a payment amount greater than zero.');
@@ -3471,6 +3523,15 @@ export default function App() {
       return;
     }
 
+    if (posOverpaidNonCash) {
+      setError(
+        `Card, Mobile Money and Bank Transfer can't exceed the balance. Reduce the amount by GMD ${formatGMD(
+          posChange - posCashTendered
+        )} (change can only be given in cash).`
+      );
+      return;
+    }
+
     setPosCompleting(true);
     setError('');
 
@@ -3480,10 +3541,18 @@ export default function App() {
       discount: Number(item.itemDiscount || 0),
     }));
 
-    const payments = posPayments.map((payment) => ({
-      method: payment.method,
-      amount: payment.amount,
-    }));
+    // Tendered payments (what the customer handed over) are shown on the
+    // receipt; the recorded payments have the change given back removed.
+    const tenderedPayments: ReceiptPayment[] = posAllPayments.map(
+      (payment) => ({
+        method: payment.method,
+        amount: payment.amount,
+      })
+    );
+
+    const payments = netOfChange(tenderedPayments, posChange);
+    const salePaymentStatus =
+      posReceived <= 0 ? 'unpaid' : posBalanceDue > 0 ? 'partial' : 'paid';
 
     const branchName =
       branches.find((b) => b.id === selectedBranch)?.name || null;
@@ -3565,9 +3634,9 @@ export default function App() {
           amount_received: posReceived,
           change_amount: posChange,
           balance_due: posBalanceDue,
-          payment_status: posBalanceDue > 0 ? 'partial' : 'paid',
+          payment_status: salePaymentStatus,
           status: 'queued',
-          payments,
+          payments: tenderedPayments,
           items: receiptItems,
         };
 
@@ -3608,15 +3677,17 @@ export default function App() {
       subtotal: Number(result.subtotal || 0),
       discount: Number(result.discount || 0),
       total: Number(result.total || 0),
-      amount_received: Number(result.amount_received || 0),
-      change_amount: Number(result.change_amount || 0),
+      // Recorded payments exclude change, so the receipt shows what was
+      // tendered and the change given back from the local figures.
+      amount_received: posReceived,
+      change_amount: posChange,
       balance_due: Math.max(
         0,
         Number(result.total || 0) - Number(result.amount_received || 0)
       ),
-      payment_status: result.payment_status || 'paid',
+      payment_status: result.payment_status || salePaymentStatus,
       status: 'completed',
-      payments,
+      payments: tenderedPayments,
       items: receiptItems,
     };
 
@@ -7987,98 +8058,129 @@ export default function App() {
                             ))}
                           </select>
 
-                          <label>Add payment</label>
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                            <select
-                              value={posPaymentMethod}
-                              onChange={(e) => setPosPaymentMethod(e.target.value)}
-                              disabled={posCompleting}
-                              style={{ flex: 1 }}
-                            >
-                              <option value="cash">Cash</option>
-                              <option value="mobile_money">Mobile Money</option>
-                              <option value="card">Card</option>
-                              <option value="bank_transfer">Bank Transfer</option>
-                            </select>
+                          <div className="pay-panel">
+                            <div className="pay-panel__title">Payment</div>
 
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="Amount"
-                              value={posPaymentAmount}
-                              onChange={(e) => setPosPaymentAmount(e.target.value)}
-                              disabled={posCompleting}
-                              style={{ flex: 1 }}
-                            />
+                            {posPayments.length > 0 && (
+                              <div className="pay-list">
+                                {posPayments.map((payment, index) => (
+                                  <div className="pay-list__row" key={index}>
+                                    <span>{paymentMethodLabel(payment.method)}</span>
+                                    <span className="pay-list__amount">
+                                      GMD {formatGMD(payment.amount)}
+                                      <button
+                                        className="pay-list__remove"
+                                        type="button"
+                                        aria-label="Remove payment"
+                                        onClick={() => removePosPayment(index)}
+                                        disabled={posCompleting}
+                                      >
+                                        ×
+                                      </button>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
 
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={addPosPayment}
-                              disabled={posCompleting}
-                            >
-                              + Add
-                            </button>
+                            <div className="pay-add">
+                              <select
+                                value={posPaymentMethod}
+                                onChange={(e) => setPosPaymentMethod(e.target.value)}
+                                disabled={posCompleting}
+                                aria-label="Payment method"
+                              >
+                                <option value="cash">Cash</option>
+                                <option value="mobile_money">Mobile Money</option>
+                                <option value="card">Card</option>
+                                <option value="bank_transfer">Bank Transfer</option>
+                              </select>
+
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                inputMode="decimal"
+                                placeholder={
+                                  posBalanceDue > 0
+                                    ? formatGMD(posBalanceDue)
+                                    : 'Amount'
+                                }
+                                value={posPaymentAmount}
+                                onChange={(e) => setPosPaymentAmount(e.target.value)}
+                                disabled={posCompleting}
+                                aria-label="Payment amount"
+                              />
+
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={addPosPayment}
+                                disabled={posCompleting || (posBalanceDue <= 0 && posPendingAmount <= 0)}
+                              >
+                                + Add
+                              </button>
+                            </div>
+                            <p className="pay-hint">
+                              Leave the amount empty and press + Add to pay the
+                              remaining balance. Use + Add again to split across
+                              several methods.
+                            </p>
+
+                            <div className="pay-summary">
+                              <div className="pay-summary__row">
+                                <span>Total</span>
+                                <strong>GMD {formatGMD(posTotal)}</strong>
+                              </div>
+                              <div className="pay-summary__row">
+                                <span>Total Paid</span>
+                                <strong>GMD {formatGMD(posReceived)}</strong>
+                              </div>
+                              <div
+                                className={`pay-summary__row${
+                                  posBalanceDue > 0 ? ' pay-summary__row--due' : ''
+                                }`}
+                              >
+                                <span>Balance</span>
+                                <strong>GMD {formatGMD(posBalanceDue)}</strong>
+                              </div>
+                              <div
+                                className={`pay-summary__row${
+                                  posChange > 0 ? ' pay-summary__row--change' : ''
+                                }`}
+                              >
+                                <span>Change</span>
+                                <strong>GMD {formatGMD(posChange)}</strong>
+                              </div>
+                            </div>
+
+                            {posBalanceDue > 0 && !posCustomerId && (
+                              <p className="pay-note pay-note--warn">
+                                Select a customer above to put the balance of
+                                GMD {formatGMD(posBalanceDue)} on credit, or
+                                collect the full amount.
+                              </p>
+                            )}
+
+                            {posBalanceDue > 0 && posCustomerId && (
+                              <p className="pay-note">
+                                {posReceived > 0 ? 'Partial payment' : 'Credit sale'}
+                                : GMD {formatGMD(posBalanceDue)} will be added
+                                to{' '}
+                                {customers.find((c) => c.id === posCustomerId)?.name ||
+                                  'the customer'}
+                                's account.
+                              </p>
+                            )}
+
+                            {posOverpaidNonCash && (
+                              <p className="pay-note pay-note--warn">
+                                Change can only be given in cash. Reduce the
+                                non-cash amount by GMD{' '}
+                                {formatGMD(posChange - posCashTendered)}.
+                              </p>
+                            )}
                           </div>
-
-                          {posPayments.length > 0 && (
-                            <div style={{ marginBottom: '14px' }}>
-                              {posPayments.map((payment, index) => (
-                                <div
-                                  key={index}
-                                  style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    padding: '6px 0',
-                                    borderBottom: '1px solid var(--border)',
-                                  }}
-                                >
-                                  <span>{payment.method}</span>
-                                  <span>
-                                    GMD {formatGMD(payment.amount)}{' '}
-                                    <button
-                                      className="secondary-button"
-                                      type="button"
-                                      onClick={() => removePosPayment(index)}
-                                      disabled={posCompleting}
-                                    >
-                                      ×
-                                    </button>
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
-                            <span>Total Received</span>
-                            <strong>GMD {formatGMD(posReceived)}</strong>
-                          </div>
-
-                          {posChange > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
-                              <span>Change</span>
-                              <strong>GMD {formatGMD(posChange)}</strong>
-                            </div>
-                          )}
-
-                          {posBalanceDue > 0 && (
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                marginTop: '6px',
-                                color: 'var(--danger)',
-                              }}
-                            >
-                              <span>
-                                Balance Due{' '}
-                                {!posCustomerId && '(select a customer to allow credit)'}
-                              </span>
-                              <strong>GMD {formatGMD(posBalanceDue)}</strong>
-                            </div>
-                          )}
 
                           <button
                             className="primary-button"
@@ -8086,11 +8188,18 @@ export default function App() {
                             disabled={
                               posCompleting ||
                               posCart.length === 0 ||
-                              (posBalanceDue > 0 && !posCustomerId)
+                              (posBalanceDue > 0 && !posCustomerId) ||
+                              posOverpaidNonCash
                             }
-                            style={{ width: '100%', marginTop: '20px' }}
+                            style={{ width: '100%', marginTop: '16px' }}
                           >
-                            {posCompleting ? 'Completing Sale...' : 'Complete Sale'}
+                            {posCompleting
+                              ? 'Completing Sale...'
+                              : posBalanceDue > 0
+                                ? posReceived > 0
+                                  ? 'Complete Sale (Partial Payment)'
+                                  : 'Complete Sale (Credit)'
+                                : 'Complete Sale'}
                           </button>
                         </div>
                       </>
@@ -8154,7 +8263,7 @@ export default function App() {
                       </div>
                       {posReceipt.balance_due > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--danger)', fontWeight: 600 }}>
-                          <span>Balance Due (Credit Sale{posReceipt.customer_name ? ` — ${posReceipt.customer_name}` : ''})</span>
+                          <span>Balance Due ({posReceipt.amount_received > 0 ? 'Partial Payment' : 'Credit Sale'}{posReceipt.customer_name ? ` — ${posReceipt.customer_name}` : ''})</span>
                           <span>GMD {formatGMD(posReceipt.balance_due)}</span>
                         </div>
                       )}

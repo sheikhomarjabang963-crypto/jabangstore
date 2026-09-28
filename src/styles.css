@@ -1929,3 +1929,267 @@ select:focus-visible {
     width: 100%;
   }
 }
+
+
+/* =========================================================
+   CLEAN / MINIMAL REFRESH
+   ========================================================= */
+
+/* The activity dashboard reuses .dashboard-content, which was originally a
+   two-column grid for an older layout. That squeezed the hero and metric
+   cards into narrow side-by-side columns. Make it a normal stacked page. */
+.admin-content.dashboard-content {
+  display: block;
+  grid-template-columns: none;
+  width: min(1180px, 94%);
+  padding: 28px 0 60px;
+}
+
+.admin-content.dashboard-content > * + * {
+  margin-top: 0;
+}
+
+.dashboard-hero {
+  margin-bottom: 20px;
+}
+
+.dashboard-hero h1 {
+  margin: 6px 0 4px;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+
+.dashboard-metrics {
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.dashboard-metric,
+.dashboard-panel {
+  border-radius: 12px;
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+
+.dashboard-metric {
+  padding: 16px 18px;
+}
+
+.dashboard-metric strong {
+  margin: 8px 0 4px;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-grid {
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.dashboard-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-panel {
+  padding: 18px 20px;
+}
+
+.dashboard-panel h2 {
+  font-size: 16px;
+}
+
+.dashboard-panel-heading {
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.dashboard-panel-heading .text-action {
+  white-space: nowrap;
+}
+
+.activity-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-row:last-child {
+  border-bottom: 0;
+}
+
+.activity-row > div {
+  min-width: 0;
+}
+
+.activity-row > div:last-child {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.activity-row strong,
+.activity-row span {
+  display: block;
+}
+
+.cash-flow-chart {
+  min-height: 190px;
+  gap: 24px;
+}
+
+/* Lighter, flatter cards and controls across the app */
+.card,
+.create-business-card,
+.business-card {
+  box-shadow: none;
+  border-radius: 12px;
+}
+
+.primary-button,
+.secondary-button {
+  border-radius: 8px;
+}
+
+@media (max-width: 1020px) {
+  .dashboard-grid--two {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-content.dashboard-content {
+    width: 92%;
+    padding-top: 16px;
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-metric {
+    padding: 14px;
+  }
+
+  .dashboard-metric strong {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 380px) {
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* POS payment panel */
+.pay-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcfb;
+}
+
+.pay-panel__title {
+  margin-bottom: 10px;
+  color: var(--green);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pay-list {
+  margin-bottom: 10px;
+}
+
+.pay-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.pay-list__amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.pay-list__remove {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pay-list__remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.pay-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.pay-add .secondary-button {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.pay-add select,
+.pay-add input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+.pay-hint {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pay-summary {
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.pay-summary__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+}
+
+.pay-summary__row--due strong {
+  color: var(--danger);
+}
+
+.pay-summary__row--change strong {
+  color: var(--green);
+}
+
+.pay-note {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--green-light);
+  color: var(--green);
+  font-size: 13px;
+}
+
+.pay-note--warn {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
