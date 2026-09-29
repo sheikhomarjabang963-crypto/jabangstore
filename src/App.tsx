@@ -667,6 +667,10 @@ export default function App() {
   const [posCategoryFilter, setPosCategoryFilter] =
     useState('all');
 
+  // Purely presentational: whether the mobile bottom-sheet cart is expanded.
+  // Reuses all existing cart/payment state and functions untouched.
+  const [posMobileCartOpen, setPosMobileCartOpen] = useState(false);
+
   const PAYMENT_METHODS: { key: string; label: string; icon: string }[] = [
     { key: 'cash', label: 'Cash', icon: '💵' },
     { key: 'mobile_money', label: 'Mobile Money', icon: '📱' },
@@ -3670,6 +3674,7 @@ export default function App() {
         };
 
         setPosReceipt(queuedReceipt);
+        setPosMobileCartOpen(false);
         setPosCart([]);
         setPosDiscount('0');
         setPosPayments([]);
@@ -3722,6 +3727,7 @@ export default function App() {
     };
 
     setPosReceipt(normalizedReceipt);
+    setPosMobileCartOpen(false);
     setPosCart([]);
     setPosDiscount('0');
     setPosPayments([]);
@@ -7731,7 +7737,7 @@ export default function App() {
 
   if (ownerPage === 'pos') {
     return (
-      <div className="dashboard-page has-sidebar">
+      <div className="dashboard-page has-sidebar pos-page">
         <Sidebar />
         <MobileTopBar />
         <header className="topbar">
@@ -7867,6 +7873,7 @@ export default function App() {
                         setSelectedBranch(branchId);
                         setPosCart([]);
                         setPosReceipt(null);
+                        setPosMobileCartOpen(false);
                         setPosPayments([]);
     setPosMethodAmounts({ cash: '', mobile_money: '', card: '', bank_transfer: '' });
                         await loadPOSStock(ownerBusiness.id, branchId);
@@ -7883,6 +7890,7 @@ export default function App() {
                 </div>
 
                 <div
+                  className="pos-layout-grid"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'minmax(0, 1.5fr) minmax(340px, 0.8fr)',
@@ -7987,7 +7995,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div
-                        className="business-grid"
+                        className="business-grid pos-products-grid"
                         style={{ marginTop: '16px' }}
                       >
                         {filteredPOSProducts.map((product) => {
@@ -8033,9 +8041,19 @@ export default function App() {
                   </div>
 
                   <aside
-                    className="create-business-card pos-cart-panel"
+                    className={`create-business-card pos-cart-panel${
+                      posMobileCartOpen ? ' pos-cart-panel--open' : ''
+                    }`}
                     style={{ position: 'sticky', top: '16px' }}
                   >
+                    <button
+                      type="button"
+                      className="pos-cart-panel__close"
+                      aria-label="Close cart"
+                      onClick={() => setPosMobileCartOpen(false)}
+                    >
+                      ✕
+                    </button>
                     <div className="section-title">
                       <div>
                         <h2>Customer</h2>
@@ -8369,7 +8387,28 @@ export default function App() {
                       </>
                     )}
                   </aside>
+
+                  {posMobileCartOpen && (
+                    <div
+                      className="pos-cart-backdrop"
+                      onClick={() => setPosMobileCartOpen(false)}
+                    />
+                  )}
                 </div>
+
+                {posCart.length > 0 && !posReceipt && (
+                  <button
+                    type="button"
+                    className="pos-mobile-bar"
+                    onClick={() => setPosMobileCartOpen(true)}
+                  >
+                    <span>
+                      🛒 Cart • {posCart.length} item{posCart.length === 1 ? '' : 's'}
+                    </span>
+                    <span>GMD {formatGMD(posTotal)}</span>
+                    <span className="pos-mobile-bar__cta">View Cart ›</span>
+                  </button>
+                )}
               </section>
 
               {posReceipt && (

@@ -2543,3 +2543,146 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* =========================================================
+   POS — MOBILE LAYOUT (phones only)
+   Scoped to .pos-page so desktop/tablet POS and every other
+   page are completely untouched.
+   ========================================================= */
+
+.pos-mobile-bar {
+  display: none;
+}
+
+.pos-cart-panel__close {
+  display: none;
+}
+
+.pos-cart-backdrop {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  /* Single-column page: product area on top, cart becomes a sheet */
+  .pos-page .pos-layout-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 2-column product grid, as requested, instead of the app-wide
+     single-column mobile rule that .business-grid normally gets. */
+  .pos-page .pos-products-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px;
+  }
+
+  .pos-page .pos-product-card .business-info {
+    padding: 8px 10px 10px;
+  }
+
+  .pos-page .pos-product-price {
+    font-size: 13px;
+  }
+
+  .pos-page .pos-product-stock {
+    font-size: 10px;
+  }
+
+  /* Search / barcode controls stay full-width and stacked, still
+     reachable above the product grid — untouched otherwise. */
+  .pos-page .pos-search-controls {
+    flex-wrap: wrap;
+  }
+
+  /* Cart becomes a bottom sheet instead of sitting inline in the page.
+     It's still the exact same DOM node with the exact same cart/payment
+     markup and state — only its position changes. */
+  .pos-page .pos-cart-panel {
+    position: fixed !important;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto !important;
+    z-index: 165;
+    max-height: 86vh;
+    overflow-y: auto;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -12px 40px rgba(11, 61, 46, 0.22);
+    transform: translateY(105%);
+    transition: transform 0.25s ease;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pos-page .pos-cart-panel--open {
+    transform: translateY(0);
+  }
+
+  .pos-page .pos-cart-panel__close {
+    display: block;
+    position: sticky;
+    top: 0;
+    float: right;
+    width: 30px;
+    height: 30px;
+    margin-left: 8px;
+    border: none;
+    border-radius: 50%;
+    background: var(--green-light);
+    color: var(--green);
+    font-size: 14px;
+    z-index: 1;
+  }
+
+  .pos-cart-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 26, 20, 0.4);
+    z-index: 160;
+  }
+
+  /* Fixed bottom cart bar */
+  .pos-mobile-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    z-index: 140;
+    padding: 13px 16px;
+    border: none;
+    border-radius: 14px;
+    background: var(--green);
+    color: var(--white);
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 10px 30px rgba(11, 61, 46, 0.35);
+  }
+
+  .pos-mobile-bar span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pos-mobile-bar__cta {
+    color: var(--gold);
+    flex-shrink: 0;
+  }
+
+  /* Leave room at the bottom of the page so the fixed bar never covers
+     the last product row or the receipt. */
+  .pos-page .admin-content {
+    padding-bottom: 90px;
+  }
+}
+
+@media (max-width: 380px) {
+  .pos-page .pos-products-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}
