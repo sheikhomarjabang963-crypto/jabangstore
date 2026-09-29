@@ -664,6 +664,25 @@ export default function App() {
   const [posPayments, setPosPayments] =
     useState<ReceiptPayment[]>([]);
 
+  const [posCategoryFilter, setPosCategoryFilter] =
+    useState('all');
+
+  const PAYMENT_METHODS: { key: string; label: string; icon: string }[] = [
+    { key: 'cash', label: 'Cash', icon: '💵' },
+    { key: 'mobile_money', label: 'Mobile Money', icon: '📱' },
+    { key: 'card', label: 'Card', icon: '💳' },
+    { key: 'bank_transfer', label: 'Bank Transfer', icon: '🏦' },
+  ];
+
+  const [posMethodAmounts, setPosMethodAmounts] = useState<
+    Record<string, string>
+  >({ cash: '', mobile_money: '', card: '', bank_transfer: '' });
+
+  const [posNewCustomerOpen, setPosNewCustomerOpen] = useState(false);
+  const [posNewCustomerName, setPosNewCustomerName] = useState('');
+  const [posNewCustomerPhone, setPosNewCustomerPhone] = useState('');
+  const [creatingPosCustomer, setCreatingPosCustomer] = useState(false);
+
   const [posPaymentMethod, setPosPaymentMethod] =
     useState('cash');
 
@@ -2011,6 +2030,7 @@ export default function App() {
       await Promise.all([
         loadPOSData(ownerBusiness.id),
         loadCustomers(ownerBusiness.id),
+        loadCategories(ownerBusiness.id),
       ]);
     }
 
@@ -3375,6 +3395,7 @@ export default function App() {
     setPosCart([]);
     setPosDiscount('0');
     setPosPayments([]);
+    setPosMethodAmounts({ cash: '', mobile_money: '', card: '', bank_transfer: '' });
     setPosPaymentAmount('');
     setPosCustomerId('');
     setPosReceipt(null);
@@ -3399,15 +3420,17 @@ export default function App() {
     posSubtotal - posSaleDiscount
   );
 
-  // Anything typed in the payment box but not yet added with "+ Add" still
-  // counts, so the totals below are always live and a cashier who forgets to
-  // press "+ Add" doesn't accidentally turn a full payment into credit.
+  // The four fixed payment rows are always live, so the summary below
+  // updates as the cashier types, with no separate "+ Add" step needed for
+  // a single-method sale. "Extra" rows (from "+ Add Payment") are for the
+  // rare case of two transactions on the same method, e.g. two card swipes.
   const posPendingAmount = Math.max(0, Number(posPaymentAmount || 0));
 
-  const posAllPayments: ReceiptPayment[] =
-    posPendingAmount > 0
-      ? [...posPayments, { method: posPaymentMethod, amount: posPendingAmount }]
-      : posPayments;
+  const posMethodEntries: ReceiptPayment[] = PAYMENT_METHODS
+    .map((m) => ({ method: m.key, amount: Number(posMethodAmounts[m.key] || 0) }))
+    .filter((entry) => entry.amount > 0);
+
+  const posAllPayments: ReceiptPayment[] = [...posMethodEntries, ...posPayments];
 
   const posReceived = posAllPayments.reduce(
     (sum, payment) => sum + Number(payment.amount || 0),
@@ -3444,18 +3467,17 @@ export default function App() {
   }
 
   function paymentMethodLabel(method: string) {
-    switch (method) {
-      case 'cash':
-        return 'Cash';
-      case 'mobile_money':
-        return 'Mobile Money';
-      case 'card':
-        return 'Card';
-      case 'bank_transfer':
-        return 'Bank Transfer';
-      default:
-        return method;
-    }
+    return PAYMENT_METHODS.find((m) => m.key === method)?.label || method;
+  }
+
+  function setPosMethodAmount(method: string, value: string) {
+    setPosMethodAmounts((prev) => ({ ...prev, [method]: value }));
+  }
+
+  function clearAllPosPayments() {
+    setPosMethodAmounts({ cash: '', mobile_money: '', card: '', bank_transfer: '' });
+    setPosPayments([]);
+    setPosPaymentAmount('');
   }
 
   function addPosPayment() {
@@ -3486,6 +3508,13 @@ export default function App() {
   }
 
   const filteredPOSProducts = posProducts.filter((product) => {
+    if (
+      posCategoryFilter !== 'all' &&
+      (product.category_id || 'uncategorized') !== posCategoryFilter
+    ) {
+      return false;
+    }
+
     const search = posSearch.toLowerCase().trim();
     if (!search) return true;
 
@@ -3644,6 +3673,7 @@ export default function App() {
         setPosCart([]);
         setPosDiscount('0');
         setPosPayments([]);
+    setPosMethodAmounts({ cash: '', mobile_money: '', card: '', bank_transfer: '' });
         setPosPaymentAmount('');
         setPosCustomerId('');
         clearDraftCartFromStorage(ownerBusiness.id);
@@ -3695,6 +3725,7 @@ export default function App() {
     setPosCart([]);
     setPosDiscount('0');
     setPosPayments([]);
+    setPosMethodAmounts({ cash: '', mobile_money: '', card: '', bank_transfer: '' });
     setPosPaymentAmount('');
     setPosCustomerId('');
     clearDraftCartFromStorage(ownerBusiness.id);
@@ -3952,6 +3983,42 @@ export default function App() {
     }
 
     setLoadingCustomers(false);
+  }
+
+  async function quickAddPosCustomer() {
+    if (!ownerBusiness) return;
+
+    const name = posNewCustomerName.trim();
+
+    if (!name) {
+      setError('Enter a customer name.');
+      return;
+    }
+
+    setCreatingPosCustomer(true);
+    setError('');
+
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({
+        business_id: ownerBusiness.id,
+        name,
+        phone: posNewCustomerPhone.trim() || null,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      setError(error.message);
+    } else {
+      await loadCustomers(ownerBusiness.id);
+      if (data?.id) setPosCustomerId(data.id);
+      setPosNewCustomerName('');
+      setPosNewCustomerPhone('');
+      setPosNewCustomerOpen(false);
+    }
+
+    setCreatingPosCustomer(false);
   }
 
   async function createCustomer(e: FormEvent) {
@@ -7801,6 +7868,7 @@ export default function App() {
                         setPosCart([]);
                         setPosReceipt(null);
                         setPosPayments([]);
+    setPosMethodAmounts({ cash: '', mobile_money: '', card: '', bank_transfer: '' });
                         await loadPOSStock(ownerBusiness.id, branchId);
                       }}
                       disabled={posCompleting}
@@ -7864,6 +7932,28 @@ export default function App() {
                         Scan Barcode
                       </button>
                     </div>
+
+                    {categories.length > 0 && (
+                      <div className="pos-category-chips">
+                        <button
+                          type="button"
+                          className={`pos-chip${posCategoryFilter === 'all' ? ' is-active' : ''}`}
+                          onClick={() => setPosCategoryFilter('all')}
+                        >
+                          All
+                        </button>
+                        {categories.map((category) => (
+                          <button
+                            type="button"
+                            key={category.id}
+                            className={`pos-chip${posCategoryFilter === category.id ? ' is-active' : ''}`}
+                            onClick={() => setPosCategoryFilter(category.id)}
+                          >
+                            {category.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {cameraScannerOpen && (
                       <div className="pos-camera-scanner">
@@ -7929,10 +8019,10 @@ export default function App() {
                               </div>
                               <div className="business-info">
                                 <h3>{product.name}</h3>
-                                <p>GMD {formatGMD(Number(product.selling_price))}</p>
-                                <p>
-                                  Available: {stock}
-                                  {inCart > 0 ? ` · Cart: ${inCart}` : ''}
+                                <p className="pos-product-price">GMD {formatGMD(Number(product.selling_price))}</p>
+                                <p className="pos-product-stock">
+                                  In Stock: {stock}
+                                  {inCart > 0 ? ` · In cart: ${inCart}` : ''}
                                 </p>
                               </div>
                             </button>
@@ -7943,13 +8033,67 @@ export default function App() {
                   </div>
 
                   <aside
-                    className="create-business-card"
+                    className="create-business-card pos-cart-panel"
                     style={{ position: 'sticky', top: '16px' }}
                   >
                     <div className="section-title">
                       <div>
+                        <h2>Customer</h2>
+                      </div>
+                    </div>
+
+                    <div className="pos-customer-row">
+                      <select
+                        value={posCustomerId}
+                        onChange={(e) => setPosCustomerId(e.target.value)}
+                        disabled={posCompleting}
+                      >
+                        <option value="">Walk-in Customer</option>
+                        {customers.map((customer) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setPosNewCustomerOpen((prev) => !prev)}
+                        disabled={posCompleting}
+                      >
+                        + New
+                      </button>
+                    </div>
+
+                    {posNewCustomerOpen && (
+                      <div className="pos-new-customer">
+                        <input
+                          placeholder="Customer name"
+                          value={posNewCustomerName}
+                          onChange={(e) => setPosNewCustomerName(e.target.value)}
+                          disabled={creatingPosCustomer}
+                        />
+                        <input
+                          placeholder="Phone (optional)"
+                          value={posNewCustomerPhone}
+                          onChange={(e) => setPosNewCustomerPhone(e.target.value)}
+                          disabled={creatingPosCustomer}
+                        />
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={quickAddPosCustomer}
+                          disabled={creatingPosCustomer}
+                        >
+                          {creatingPosCustomer ? 'Saving...' : 'Save Customer'}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="section-title" style={{ marginTop: '18px' }}>
+                      <div>
                         <h2>Cart</h2>
-                        <p>{posCart.length} product{posCart.length === 1 ? '' : 's'}</p>
+                        <p>{posCart.length} item{posCart.length === 1 ? '' : 's'}</p>
                       </div>
                       {posCart.length > 0 && (
                         <button
@@ -7970,65 +8114,80 @@ export default function App() {
                       </div>
                     ) : (
                       <>
-                        <div className="table-wrapper">
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th>Item</th>
-                                <th>Qty</th>
-                                <th>Total</th>
-                                <th></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {posCart.map((item) => (
-                                <tr key={item.id}>
-                                  <td>
-                                    <strong>{item.name}</strong>
-                                    <small style={{ display: 'block' }}>
-                                      GMD {formatGMD(Number(item.selling_price))}
-                                    </small>
-                                  </td>
-                                  <td>
-                                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-                                      <button
-                                        className="secondary-button"
-                                        onClick={() => changePOSQuantity(item.id, item.quantity - 1)}
-                                        disabled={posCompleting}
-                                      >−</button>
-                                      <strong>{item.quantity}</strong>
-                                      <button
-                                        className="secondary-button"
-                                        onClick={() => changePOSQuantity(item.id, item.quantity + 1)}
-                                        disabled={posCompleting || item.quantity >= Number(posStock[item.id] || 0)}
-                                      >+</button>
-                                    </div>
-                                  </td>
-                                  <td>
-                                    GMD {formatGMD(Number(item.selling_price) * item.quantity - Number(item.itemDiscount || 0))}
-                                  </td>
-                                  <td>
-                                    <button
-                                      className="secondary-button"
-                                      onClick={() => removeFromPOSCart(item.id)}
-                                      disabled={posCompleting}
-                                    >
-                                      ×
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                        <div className="cart-table">
+                          <div className="cart-table__head">
+                            <span>Item</span>
+                            <span>Qty</span>
+                            <span>Total</span>
+                            <span></span>
+                          </div>
+                          {posCart.map((item) => (
+                            <div className="cart-table__row" key={item.id}>
+                              <div className="cart-table__item">
+                                <div className="cart-table__thumb">
+                                  {item.image_url ? (
+                                    <img src={item.image_url} alt={item.name} />
+                                  ) : (
+                                    <span aria-hidden="true">📦</span>
+                                  )}
+                                </div>
+                                <div>
+                                  <strong>{item.name}</strong>
+                                  <small>GMD {formatGMD(Number(item.selling_price))}</small>
+                                </div>
+                              </div>
+
+                              <div className="cart-stepper">
+                                <button
+                                  type="button"
+                                  aria-label="Decrease quantity"
+                                  onClick={() => changePOSQuantity(item.id, item.quantity - 1)}
+                                  disabled={posCompleting}
+                                >
+                                  −
+                                </button>
+                                <strong>{item.quantity}</strong>
+                                <button
+                                  type="button"
+                                  aria-label="Increase quantity"
+                                  onClick={() => changePOSQuantity(item.id, item.quantity + 1)}
+                                  disabled={
+                                    posCompleting ||
+                                    item.quantity >= Number(posStock[item.id] || 0)
+                                  }
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              <strong className="cart-table__total">
+                                GMD{' '}
+                                {formatGMD(
+                                  Number(item.selling_price) * item.quantity -
+                                    Number(item.itemDiscount || 0)
+                                )}
+                              </strong>
+
+                              <button
+                                className="cart-table__remove"
+                                type="button"
+                                aria-label={`Remove ${item.name}`}
+                                onClick={() => removeFromPOSCart(item.id)}
+                                disabled={posCompleting}
+                              >
+                                🗑
+                              </button>
+                            </div>
+                          ))}
                         </div>
 
-                        <div style={{ marginTop: '20px' }}>
+                        <div style={{ marginTop: '18px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                             <span>Subtotal</span>
                             <strong>GMD {formatGMD(posSubtotal)}</strong>
                           </div>
 
-                          <label>Sale discount (GMD)</label>
+                          <label>Discount (GMD)</label>
                           <input
                             type="number"
                             min="0"
@@ -8038,117 +8197,122 @@ export default function App() {
                             disabled={posCompleting}
                           />
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', margin: '16px 0', fontSize: '20px' }}>
+                          <div className="pos-total-row">
                             <strong>Total</strong>
                             <strong>GMD {formatGMD(posTotal)}</strong>
                           </div>
 
-                          <label>Customer (required for credit sales)</label>
-                          <select
-                            value={posCustomerId}
-                            onChange={(e) => setPosCustomerId(e.target.value)}
-                            disabled={posCompleting}
-                            style={{ width: '100%', marginBottom: '14px' }}
-                          >
-                            <option value="">Walk-in customer</option>
-                            {customers.map((customer) => (
-                              <option key={customer.id} value={customer.id}>
-                                {customer.name}
-                              </option>
-                            ))}
-                          </select>
-
                           <div className="pay-panel">
-                            <div className="pay-panel__title">Payment</div>
+                            <div className="pay-panel__title-row">
+                              <span className="pay-panel__title">Payment</span>
+                              {(posReceived > 0) && (
+                                <button
+                                  type="button"
+                                  className="pay-clear-all"
+                                  onClick={clearAllPosPayments}
+                                  disabled={posCompleting}
+                                >
+                                  Clear All
+                                </button>
+                              )}
+                            </div>
 
-                            {posPayments.length > 0 && (
-                              <div className="pay-list">
-                                {posPayments.map((payment, index) => (
-                                  <div className="pay-list__row" key={index}>
-                                    <span>{paymentMethodLabel(payment.method)}</span>
-                                    <span className="pay-list__amount">
-                                      GMD {formatGMD(payment.amount)}
-                                      <button
-                                        className="pay-list__remove"
-                                        type="button"
-                                        aria-label="Remove payment"
-                                        onClick={() => removePosPayment(index)}
-                                        disabled={posCompleting}
-                                      >
-                                        ×
-                                      </button>
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                            <div className="pay-methods">
+                              {PAYMENT_METHODS.map((m) => (
+                                <div className="pay-method-row" key={m.key}>
+                                  <span className="pay-method-row__icon" aria-hidden="true">
+                                    {m.icon}
+                                  </span>
+                                  <span className="pay-method-row__label">{m.label}</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    inputMode="decimal"
+                                    value={posMethodAmounts[m.key]}
+                                    onChange={(e) => setPosMethodAmount(m.key, e.target.value)}
+                                    disabled={posCompleting}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="pay-method-row__clear"
+                                    aria-label={`Clear ${m.label}`}
+                                    onClick={() => setPosMethodAmount(m.key, '')}
+                                    disabled={posCompleting || !posMethodAmounts[m.key]}
+                                  >
+                                    🗑
+                                  </button>
+                                </div>
+                              ))}
 
-                            <div className="pay-add">
+                              {posPayments.map((payment, index) => (
+                                <div className="pay-method-row" key={`extra-${index}`}>
+                                  <span className="pay-method-row__icon" aria-hidden="true">
+                                    {PAYMENT_METHODS.find((m) => m.key === payment.method)?.icon}
+                                  </span>
+                                  <span className="pay-method-row__label">
+                                    {paymentMethodLabel(payment.method)} (extra)
+                                  </span>
+                                  <span className="pay-method-row__amount">
+                                    GMD {formatGMD(payment.amount)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="pay-method-row__clear"
+                                    aria-label="Remove payment"
+                                    onClick={() => removePosPayment(index)}
+                                    disabled={posCompleting}
+                                  >
+                                    🗑
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="pay-add-extra">
                               <select
                                 value={posPaymentMethod}
                                 onChange={(e) => setPosPaymentMethod(e.target.value)}
                                 disabled={posCompleting}
-                                aria-label="Payment method"
+                                aria-label="Additional payment method"
                               >
-                                <option value="cash">Cash</option>
-                                <option value="mobile_money">Mobile Money</option>
-                                <option value="card">Card</option>
-                                <option value="bank_transfer">Bank Transfer</option>
+                                {PAYMENT_METHODS.map((m) => (
+                                  <option key={m.key} value={m.key}>
+                                    {m.label}
+                                  </option>
+                                ))}
                               </select>
-
                               <input
                                 type="number"
                                 min="0"
                                 step="0.01"
                                 inputMode="decimal"
-                                placeholder={
-                                  posBalanceDue > 0
-                                    ? formatGMD(posBalanceDue)
-                                    : 'Amount'
-                                }
+                                placeholder="Amount"
                                 value={posPaymentAmount}
                                 onChange={(e) => setPosPaymentAmount(e.target.value)}
                                 disabled={posCompleting}
-                                aria-label="Payment amount"
+                                aria-label="Additional payment amount"
                               />
-
                               <button
-                                className="secondary-button"
                                 type="button"
+                                className="secondary-button"
                                 onClick={addPosPayment}
                                 disabled={posCompleting || (posBalanceDue <= 0 && posPendingAmount <= 0)}
                               >
-                                + Add
+                                + Add Payment
                               </button>
                             </div>
-                            <p className="pay-hint">
-                              Leave the amount empty and press + Add to pay the
-                              remaining balance. Use + Add again to split across
-                              several methods.
-                            </p>
 
-                            <div className="pay-summary">
-                              <div className="pay-summary__row">
-                                <span>Total</span>
-                                <strong>GMD {formatGMD(posTotal)}</strong>
-                              </div>
-                              <div className="pay-summary__row">
+                            <div className="pay-summary pay-summary--grid">
+                              <div className="pay-summary__box">
                                 <span>Total Paid</span>
                                 <strong>GMD {formatGMD(posReceived)}</strong>
                               </div>
-                              <div
-                                className={`pay-summary__row${
-                                  posBalanceDue > 0 ? ' pay-summary__row--due' : ''
-                                }`}
-                              >
-                                <span>Balance</span>
+                              <div className={`pay-summary__box${posBalanceDue > 0 ? ' pay-summary__box--due' : ''}`}>
+                                <span>Balance Due</span>
                                 <strong>GMD {formatGMD(posBalanceDue)}</strong>
                               </div>
-                              <div
-                                className={`pay-summary__row${
-                                  posChange > 0 ? ' pay-summary__row--change' : ''
-                                }`}
-                              >
+                              <div className={`pay-summary__box${posChange > 0 ? ' pay-summary__box--change' : ''}`}>
                                 <span>Change</span>
                                 <strong>GMD {formatGMD(posChange)}</strong>
                               </div>
@@ -8183,7 +8347,7 @@ export default function App() {
                           </div>
 
                           <button
-                            className="primary-button"
+                            className="primary-button pos-complete-button"
                             onClick={completePOSSale}
                             disabled={
                               posCompleting ||
@@ -8191,8 +8355,8 @@ export default function App() {
                               (posBalanceDue > 0 && !posCustomerId) ||
                               posOverpaidNonCash
                             }
-                            style={{ width: '100%', marginTop: '16px' }}
                           >
+                            <span aria-hidden="true">🛒</span>{' '}
                             {posCompleting
                               ? 'Completing Sale...'
                               : posBalanceDue > 0

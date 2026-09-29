@@ -2193,3 +2193,353 @@ select:focus-visible {
   color: var(--danger);
 }
 
+
+
+/* =========================================================
+   POS REDESIGN — matches the provided mockup
+   ========================================================= */
+
+.pos-category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+
+.pos-chip {
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #f4f5f6;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pos-chip.is-active {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--white);
+}
+
+.pos-product-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.pos-product-card .business-info {
+  padding: 10px 14px 14px;
+}
+
+.pos-product-price {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.pos-product-stock {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Customer row */
+.pos-customer-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.pos-customer-row select {
+  margin: 0;
+  width: 100%;
+}
+
+.pos-new-customer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.pos-new-customer input {
+  margin: 0;
+}
+
+.pos-new-customer .primary-button {
+  grid-column: 1 / -1;
+}
+
+/* Cart table */
+.cart-table {
+  margin-top: 6px;
+}
+
+.cart-table__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px 74px 26px;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.cart-table__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px 74px 26px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cart-table__row:last-child {
+  border-bottom: 0;
+}
+
+.cart-table__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cart-table__item > div {
+  min-width: 0;
+}
+
+.cart-table__item strong,
+.cart-table__item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cart-table__item small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cart-table__thumb {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--green-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.cart-table__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cart-table__total {
+  text-align: right;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.cart-table__remove {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pos-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 14px 0;
+  font-size: 19px;
+}
+
+/* Payment panel */
+.pay-panel__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.pay-panel__title-row .pay-panel__title {
+  margin-bottom: 0;
+}
+
+.pay-clear-all {
+  border: none;
+  background: none;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pay-methods {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pay-method-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 110px 26px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.pay-method-row__icon {
+  font-size: 15px;
+  text-align: center;
+}
+
+.pay-method-row__label {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pay-method-row input {
+  margin: 0;
+  width: 100%;
+  text-align: right;
+}
+
+.pay-method-row__amount {
+  text-align: right;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.pay-method-row__clear {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pay-method-row__clear:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.pay-add-extra {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.pay-add-extra select,
+.pay-add-extra input {
+  margin: 0;
+}
+
+.pay-add-extra .secondary-button {
+  grid-column: 1 / -1;
+}
+
+.pay-summary--grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  border-top: none;
+  padding-top: 14px;
+  margin-top: 10px;
+}
+
+.pay-summary__box {
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--green-light);
+  text-align: center;
+}
+
+.pay-summary__box span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.pay-summary__box strong {
+  font-size: 15px;
+}
+
+.pay-summary__box--due strong {
+  color: var(--danger);
+}
+
+.pay-summary__box--change strong {
+  color: var(--green);
+}
+
+.pos-complete-button {
+  width: 100%;
+  margin-top: 16px;
+  font-size: 15px;
+  padding: 14px;
+}
+
+@media (max-width: 480px) {
+  .cart-table__head {
+    display: none;
+  }
+
+  .cart-table__row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'item remove' 'qty total';
+    row-gap: 8px;
+  }
+
+  .cart-table__item {
+    grid-area: item;
+  }
+
+  .cart-table__remove {
+    grid-area: remove;
+  }
+
+  .cart-stepper {
+    grid-area: qty;
+  }
+
+  .cart-table__total {
+    grid-area: total;
+  }
+
+  .pay-method-row {
+    grid-template-columns: 20px minmax(0, 1fr) 90px 22px;
+  }
+
+  .pay-add-extra {
+    grid-template-columns: 1fr;
+  }
+}
