@@ -3269,57 +3269,14 @@ export default function App() {
       });
 
       cameraStreamRef.current = stream;
-      setCameraScannerOpen(true);
       setError('');
-
-      window.setTimeout(() => {
-        const video = cameraVideoRef.current;
-        if (!video || !cameraStreamRef.current) return;
-
-        video.srcObject = cameraStreamRef.current;
-        void video.play().catch(() => {
-          setError('Camera preview could not start. Check camera permissions and try again.');
-          stopCameraScanner();
-        });
-
-        const detector = new BarcodeDetectorConstructor({
-          formats: [
-            'code_128',
-            'code_39',
-            'code_93',
-            'codabar',
-            'ean_13',
-            'ean_8',
-            'itf',
-            'upc_a',
-            'upc_e',
-          ],
-        });
-
-        cameraScanTimerRef.current = window.setInterval(async () => {
-          const activeVideo = cameraVideoRef.current;
-          if (
-            !activeVideo ||
-            activeVideo.readyState < 2 ||
-            cameraScanInFlightRef.current
-          ) {
-            return;
-          }
-
-          cameraScanInFlightRef.current = true;
-          try {
-            const results = await detector.detect(activeVideo);
-            const barcode = results[0]?.rawValue;
-            if (barcode && submitBarcodeToPOS(barcode)) {
-              stopCameraScanner();
-            }
-          } catch {
-            // A frame can fail while the camera is initializing; keep scanning.
-          } finally {
-            cameraScanInFlightRef.current = false;
-          }
-        }, 350);
-      }, 0);
+      // The <video> element only exists once cameraScannerOpen is true and
+      // React has re-rendered. The actual stream attach + scan loop moved
+      // into a useEffect keyed on cameraScannerOpen (below) so it reliably
+      // runs after that DOM element exists, instead of racing it with a
+      // setTimeout(fn, 0), which was the cause of the black screen: the
+      // stream was sometimes assigned before the <video> element existed.
+      setCameraScannerOpen(true);
     } catch {
       setError(
         'Camera access was unavailable. Allow camera permission and try again, or use the barcode field.'
@@ -3327,6 +3284,69 @@ export default function App() {
       stopCameraScanner();
     }
   }
+
+  useEffect(() => {
+    if (!cameraScannerOpen) return;
+
+    const video = cameraVideoRef.current;
+    const stream = cameraStreamRef.current;
+    if (!video || !stream) return;
+
+    video.srcObject = stream;
+    void video.play().catch(() => {
+      setError('Camera preview could not start. Check camera permissions and try again.');
+      stopCameraScanner();
+    });
+
+    const BarcodeDetectorConstructor = (window as any).BarcodeDetector;
+    if (!BarcodeDetectorConstructor) return;
+
+    const detector = new BarcodeDetectorConstructor({
+      formats: [
+        'code_128',
+        'code_39',
+        'code_93',
+        'codabar',
+        'ean_13',
+        'ean_8',
+        'itf',
+        'upc_a',
+        'upc_e',
+      ],
+    });
+
+    cameraScanTimerRef.current = window.setInterval(async () => {
+      const activeVideo = cameraVideoRef.current;
+      if (
+        !activeVideo ||
+        activeVideo.readyState < 2 ||
+        cameraScanInFlightRef.current
+      ) {
+        return;
+      }
+
+      cameraScanInFlightRef.current = true;
+      try {
+        const results = await detector.detect(activeVideo);
+        const barcode = results[0]?.rawValue;
+        if (barcode && submitBarcodeToPOS(barcode)) {
+          stopCameraScanner();
+        }
+      } catch {
+        // A frame can fail while the camera is initializing; keep scanning.
+      } finally {
+        cameraScanInFlightRef.current = false;
+      }
+    }, 350);
+
+    return () => {
+      if (cameraScanTimerRef.current) {
+        clearInterval(cameraScanTimerRef.current);
+        cameraScanTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraScannerOpen]);
 
   function addToPOSCart(product: Product) {
     const available = Number(posStock[product.id] || 0);
@@ -3568,6 +3588,13 @@ export default function App() {
     setPosCompleting(true);
     setError('');
 
+    // Everything below can throw (e.g. a raw network exception, not just a
+    // clean Supabase {error} response). Without this try/catch, an
+    // exception here would skip every setPosCompleting(false) below and
+    // leave "Complete Sale" permanently disabled for the rest of the
+    // session, even though the cart/payment totals keep looking correct.
+    try {
+
     const items = posCart.map((item) => ({
       product_id: item.id,
       quantity: item.quantity,
@@ -3743,6 +3770,15 @@ export default function App() {
     ]);
 
     setPosCompleting(false);
+    } catch (err: any) {
+      // Same recovery as the handled server-error path above: show it and
+      // leave the cart exactly as the cashier had it, instead of leaving
+      // the button stuck disabled.
+      setError(
+        err?.message || 'Could not complete the sale. Please try again.'
+      );
+      setPosCompleting(false);
+    }
   }
 
   function escapeHtml(value: string) {
