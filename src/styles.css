@@ -2686,3 +2686,43 @@ select:focus-visible {
     gap: 8px;
   }
 }
+
+
+/* =========================================================
+   INVENTORY — combined Products + Stock + Purchases tabs
+   ========================================================= */
+
+.inventory-tab-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.inventory-tab {
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inventory-tab.is-active {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--white);
+}
+
+@media (max-width: 700px) {
+  .inventory-tab-switcher {
+    gap: 6px;
+  }
+
+  .inventory-tab {
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+}

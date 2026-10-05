@@ -243,24 +243,6 @@ type Customer = {
   created_at: string;
 };
 
-type PurchaseCartItem = {
-  product_id: string;
-  name: string;
-  quantity: number;
-  unitCost: number;
-};
-
-type PurchaseRecord = {
-  id: string;
-  purchase_number: string;
-  subtotal: number;
-  discount: number;
-  total: number;
-  payment_status: string;
-  status: string;
-  created_at: string;
-};
-
 type ExpenseRecord = {
   id: string;
   category: string;
@@ -323,11 +305,9 @@ type ReportsData = {
 
 type OwnerPage =
   | 'dashboard'
-  | 'products'
   | 'inventory'
   | 'pos'
   | 'sales'
-  | 'purchases'
   | 'expenses'
   | 'returns'
   | 'customers'
@@ -520,6 +500,13 @@ export default function App() {
   const [showProductForm, setShowProductForm] =
     useState(false);
 
+  // Which sub-section of the combined Inventory page is showing.
+  // Products + Stock + Purchases now live under one 'inventory' page
+  // instead of three separate pages.
+  const [inventoryTab, setInventoryTab] = useState<
+    'products' | 'stock'
+  >('products');
+
   const [creatingProduct, setCreatingProduct] =
     useState(false);
 
@@ -646,6 +633,13 @@ export default function App() {
   const cameraScanTimerRef =
     useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Which handler a detected barcode goes to. The camera/BarcodeDetector
+  // infrastructure itself (below) is generic; startCameraScanner sets this
+  // right before opening so the same scanner can serve POS and, now,
+  // Inventory's restock flow without a second camera implementation.
+  const cameraOnDetectRef =
+    useRef<(barcode: string) => boolean>(() => false);
+
   const cameraScanInFlightRef =
     useRef(false);
 
@@ -756,36 +750,6 @@ export default function App() {
     useState('');
 
   const [creatingCustomer, setCreatingCustomer] =
-    useState(false);
-
-  /*
-   * ========================================================
-   * PURCHASES STATE
-   * ========================================================
-   */
-
-  const [purchases, setPurchases] =
-    useState<PurchaseRecord[]>([]);
-
-  const [loadingPurchases, setLoadingPurchases] =
-    useState(false);
-
-  const [purchaseCart, setPurchaseCart] =
-    useState<PurchaseCartItem[]>([]);
-
-  const [purchaseProductId, setPurchaseProductId] =
-    useState('');
-
-  const [purchaseQuantity, setPurchaseQuantity] =
-    useState('1');
-
-  const [purchaseUnitCost, setPurchaseUnitCost] =
-    useState('0');
-
-  const [purchaseDiscount, setPurchaseDiscount] =
-    useState('0');
-
-  const [creatingPurchase, setCreatingPurchase] =
     useState(false);
 
   /*
@@ -1347,7 +1311,8 @@ export default function App() {
 
       // Operating expenses (rent, utilities, salaries, etc.) come from the
       // dedicated "expenses" table via create_expense — these are distinct
-      // from stock purchases, which stay on the Purchases page/table.
+      // from stock purchases, which are tracked in the Inventory page's
+      // Stock tab (receive stock / restock) and the "purchases" table.
       canViewFinancials
         ? supabase
             .from('expenses')
@@ -1870,9 +1835,7 @@ export default function App() {
       { key: 'pos', label: 'POS', icon: '🛒' },
       { key: 'sales', label: 'Sales History', icon: '🧾' },
       { key: 'customers', label: 'Customers', icon: '🧍' },
-      { key: 'products', label: 'Products', icon: '📦', adminOnly: true },
       { key: 'inventory', label: 'Inventory', icon: '📋', adminOnly: true },
-      { key: 'purchases', label: 'Purchases', icon: '🚚', adminOnly: true },
       { key: 'expenses', label: 'Expenses', icon: '💳', adminOnly: true },
       { key: 'returns', label: 'Returns & Refunds', icon: '↩️', adminOnly: true },
       { key: 'reports', label: 'Reports', icon: '📈', adminOnly: true },
@@ -1993,24 +1956,10 @@ export default function App() {
     }
 
     if (
-      page === 'products'
-    ) {
-      await Promise.all([
-        loadProducts(
-          ownerBusiness.id
-        ),
-        loadCategories(
-          ownerBusiness.id
-        ),
-        loadBranches(
-          ownerBusiness.id
-        ),
-      ]);
-    }
-
-    if (
       page === 'inventory'
     ) {
+      // Combined page: Products + Stock + Purchases tabs, so load
+      // everything all three need up front.
       await Promise.all([
         loadProducts(
           ownerBusiness.id
@@ -2040,14 +1989,6 @@ export default function App() {
 
     if (page === 'sales') {
       await loadSalesHistory(ownerBusiness.id);
-    }
-
-    if (page === 'purchases') {
-      await Promise.all([
-        loadProducts(ownerBusiness.id),
-        loadBranches(ownerBusiness.id),
-        loadPurchases(ownerBusiness.id),
-      ]);
     }
 
     if (page === 'expenses') {
@@ -3224,6 +3165,47 @@ export default function App() {
     return true;
   }
 
+  // Same matching + debounce pattern as submitBarcodeToPOS, but for
+  // Inventory's restock flow: matches against the full product catalog
+  // (not POS's branch-filtered list) and opens the restock form with that
+  // product pre-selected instead of adding to a cart.
+  function submitBarcodeToRestock(value: string) {
+    const barcode = value.trim();
+
+    if (!barcode) {
+      setError('Enter or scan a barcode first.');
+      return false;
+    }
+
+    const now = Date.now();
+    const previous = lastBarcodeScanRef.current;
+    if (
+      previous &&
+      previous.value === barcode &&
+      now - previous.at < 1200
+    ) {
+      return false;
+    }
+
+    lastBarcodeScanRef.current = { value: barcode, at: now };
+
+    const product = products.find(
+      (item) =>
+        item.is_active &&
+        item.barcode?.trim() === barcode
+    );
+
+    if (!product) {
+      setError(
+        `No active product matches barcode "${barcode}". Check the barcode and try again.`
+      );
+      return false;
+    }
+
+    openRestock(product.id);
+    return true;
+  }
+
   function stopCameraScanner() {
     if (cameraScanTimerRef.current) {
       clearInterval(cameraScanTimerRef.current);
@@ -3241,7 +3223,11 @@ export default function App() {
     setCameraScannerOpen(false);
   }
 
-  async function startCameraScanner() {
+  async function startCameraScanner(
+    onDetect: (barcode: string) => boolean = submitBarcodeToPOS
+  ) {
+    cameraOnDetectRef.current = onDetect;
+
     if (
       typeof window === 'undefined' ||
       !navigator.mediaDevices?.getUserMedia
@@ -3329,7 +3315,7 @@ export default function App() {
       try {
         const results = await detector.detect(activeVideo);
         const barcode = results[0]?.rawValue;
-        if (barcode && submitBarcodeToPOS(barcode)) {
+        if (barcode && cameraOnDetectRef.current(barcode)) {
           stopCameraScanner();
         }
       } catch {
@@ -4097,133 +4083,6 @@ export default function App() {
     }
 
     setCreatingCustomer(false);
-  }
-
-  /*
-   * ========================================================
-   * PURCHASES (no supplier field \u2014 by design)
-   * ========================================================
-   */
-
-  async function loadPurchases(businessId: string) {
-    setLoadingPurchases(true);
-    setError('');
-
-    const { data, error } = await supabase
-      .from('purchases')
-      .select(
-        'id, purchase_number, subtotal, discount, total, payment_status, status, created_at'
-      )
-      .eq('business_id', businessId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (error) {
-      setError(error.message);
-    } else {
-      setPurchases((data || []) as PurchaseRecord[]);
-    }
-
-    setLoadingPurchases(false);
-  }
-
-  function addPurchaseCartItem() {
-    setError('');
-
-    if (!purchaseProductId) {
-      setError('Please select a product.');
-      return;
-    }
-
-    const quantity = Number(purchaseQuantity || 0);
-    const unitCost = Number(purchaseUnitCost || 0);
-
-    if (quantity <= 0) {
-      setError('Quantity must be greater than zero.');
-      return;
-    }
-
-    if (unitCost < 0) {
-      setError('Unit cost cannot be negative.');
-      return;
-    }
-
-    const product = products.find((p) => p.id === purchaseProductId);
-
-    if (!product) return;
-
-    setPurchaseCart((prev) => [
-      ...prev,
-      {
-        product_id: product.id,
-        name: product.name,
-        quantity,
-        unitCost,
-      },
-    ]);
-
-    setPurchaseProductId('');
-    setPurchaseQuantity('1');
-    setPurchaseUnitCost('0');
-  }
-
-  function removePurchaseCartItem(productId: string) {
-    setPurchaseCart((prev) =>
-      prev.filter((item) => item.product_id !== productId)
-    );
-  }
-
-  const purchaseSubtotal = useMemo(
-    () =>
-      purchaseCart.reduce(
-        (sum, item) => sum + item.quantity * item.unitCost,
-        0
-      ),
-    [purchaseCart]
-  );
-
-  async function submitPurchase() {
-    if (!ownerBusiness) return;
-
-    if (!selectedBranch) {
-      setError('Please select a branch before recording the purchase.');
-      return;
-    }
-
-    if (purchaseCart.length === 0) {
-      setError('Add at least one item to the purchase.');
-      return;
-    }
-
-    setCreatingPurchase(true);
-    setError('');
-
-    const items = purchaseCart.map((item) => ({
-      product_id: item.product_id,
-      quantity: item.quantity,
-      unit_cost: item.unitCost,
-      discount: 0,
-    }));
-
-    const { error } = await supabase.rpc('create_purchase', {
-      target_business_id: ownerBusiness.id,
-      target_branch_id: selectedBranch,
-      target_discount: Number(purchaseDiscount || 0),
-      target_items: items,
-    });
-
-    if (error) {
-      setError(error.message);
-    } else {
-      setPurchaseCart([]);
-      setPurchaseDiscount('0');
-      await Promise.all([
-        loadPurchases(ownerBusiness.id),
-        loadInventory(ownerBusiness.id),
-      ]);
-    }
-
-    setCreatingPurchase(false);
   }
 
   /*
@@ -5876,14 +5735,11 @@ export default function App() {
 
   /*
    * ========================================================
-   * PRODUCTS PAGE
+   * INVENTORY (Products + Stock + Purchases, combined)
    * ========================================================
    */
 
-  if (
-    ownerPage ===
-    'products'
-  ) {
+  if (ownerPage === 'inventory') {
     return (
       <div className="dashboard-page has-sidebar">
         <Sidebar />
@@ -5914,6 +5770,26 @@ export default function App() {
         </header>
 
         <main className="admin-content">
+
+          <div className="inventory-tab-switcher">
+            <button
+              type="button"
+              className={`inventory-tab${inventoryTab === 'products' ? ' is-active' : ''}`}
+              onClick={() => setInventoryTab('products')}
+            >
+              📦 Products
+            </button>
+            <button
+              type="button"
+              className={`inventory-tab${inventoryTab === 'stock' ? ' is-active' : ''}`}
+              onClick={() => setInventoryTab('stock')}
+            >
+              📋 Stock
+            </button>
+          </div>
+
+          {inventoryTab === 'products' && (
+            <>
 
           <section className="admin-header">
 
@@ -6726,52 +6602,11 @@ export default function App() {
 
           </section>
 
-        </main>
+            </>
+          )}
 
-      </div>
-    );
-  }
-
-  /*
-   * ========================================================
-   * REAL INVENTORY PAGE
-   * ========================================================
-   */
-
-  if (
-    ownerPage ===
-    'inventory'
-  ) {
-    return (
-      <div className="dashboard-page has-sidebar">
-        <Sidebar />
-        <MobileTopBar />
-
-        <header className="topbar">
-
-          <div>
-            <div className="brand">
-              Jabang<span>Store</span>
-            </div>
-
-            <small>
-              {
-                ownerBusiness.name
-              }
-            </small>
-            <div><RoleBadge /></div>
-          </div>
-
-          <button
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            Sign out
-          </button>
-
-        </header>
-
-        <main className="admin-content">
+          {inventoryTab === 'stock' && (
+            <>
 
           <section className="admin-header">
 
@@ -6782,7 +6617,7 @@ export default function App() {
               </span>
 
               <h1>
-                Inventory
+                Stock
               </h1>
 
               <p>
@@ -6952,6 +6787,37 @@ export default function App() {
                   )}
 
                 </select>
+
+                <button
+                  className="secondary-button pos-camera-button"
+                  type="button"
+                  onClick={() => startCameraScanner(submitBarcodeToRestock)}
+                  disabled={restocking || cameraScannerOpen}
+                >
+                  Scan Barcode
+                </button>
+
+                {cameraScannerOpen && (
+                  <div className="pos-camera-scanner">
+                    <div>
+                      <strong>Camera barcode scanner</strong>
+                      <p>Point the camera at a product barcode to select it for restocking.</p>
+                    </div>
+                    <video
+                      ref={cameraVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                    />
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={stopCameraScanner}
+                    >
+                      Stop camera
+                    </button>
+                  </div>
+                )}
 
                 <label>
                   Quantity to add *
@@ -7759,11 +7625,14 @@ export default function App() {
 
           </section>
 
-        </main>
+            </>
+          )}
 
+        </main>
       </div>
     );
   }
+
 
   /*
    * ========================================================
@@ -7970,7 +7839,7 @@ export default function App() {
                       <button
                         className="secondary-button pos-camera-button"
                         type="button"
-                        onClick={startCameraScanner}
+                        onClick={() => startCameraScanner(submitBarcodeToPOS)}
                         disabled={posCompleting || cameraScannerOpen}
                       >
                         Scan Barcode
@@ -9323,203 +9192,6 @@ export default function App() {
     );
   }
 
-  /*
-   * ========================================================
-   * PURCHASES PAGE (no supplier field, by design)
-   * ========================================================
-   */
-
-  if (ownerPage === 'purchases') {
-    return (
-      <div className="dashboard-page has-sidebar">
-        <Sidebar />
-        <MobileTopBar />
-        <header className="topbar">
-          <div>
-            <div className="brand">
-              Jabang<span>Store</span>
-            </div>
-            <small>{ownerBusiness.name}</small>
-            <div><RoleBadge /></div>
-          </div>
-          <button className="logout-button" onClick={handleLogout}>
-            Sign out
-          </button>
-        </header>
-
-        <main className="admin-content">
-          <button
-            className="secondary-button"
-            onClick={() => openOwnerPage('dashboard')}
-          >
-            ← Dashboard
-          </button>
-
-          <div className="page-header">
-            <div>
-              <h1>Purchases</h1>
-              <p>Record goods bought in for the shop.</p>
-            </div>
-          </div>
-
-          {error && <div className="error">{error}</div>}
-
-          <div className="card" style={{ marginBottom: '20px' }}>
-            <h3 style={{ marginTop: 0 }}>Record a new purchase</h3>
-
-            <label>Branch</label>
-            <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              style={{ width: '100%', marginBottom: '14px' }}
-            >
-              <option value="">Select branch</option>
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-
-            <div
-              style={{
-                display: 'flex',
-                gap: '10px',
-                flexWrap: 'wrap',
-                marginBottom: '10px',
-              }}
-            >
-              <select
-                value={purchaseProductId}
-                onChange={(e) => setPurchaseProductId(e.target.value)}
-                style={{ flex: 2 }}
-              >
-                <option value="">Select product</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min="1"
-                placeholder="Qty"
-                value={purchaseQuantity}
-                onChange={(e) => setPurchaseQuantity(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <input
-                type="number"
-                min="0"
-                placeholder="Unit cost"
-                value={purchaseUnitCost}
-                onChange={(e) => setPurchaseUnitCost(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button
-                className="secondary-button"
-                onClick={addPurchaseCartItem}
-                type="button"
-              >
-                + Add Item
-              </button>
-            </div>
-
-            {purchaseCart.length > 0 && (
-              <div className="table-wrapper" style={{ marginBottom: '14px' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th>Qty</th>
-                      <th>Unit Cost</th>
-                      <th>Line Total</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {purchaseCart.map((item) => (
-                      <tr key={item.product_id}>
-                        <td>{item.name}</td>
-                        <td>{item.quantity}</td>
-                        <td>GMD {formatGMD(item.unitCost)}</td>
-                        <td>GMD {formatGMD(item.quantity * item.unitCost)}</td>
-                        <td>
-                          <button
-                            className="secondary-button"
-                            onClick={() => removePurchaseCartItem(item.product_id)}
-                            type="button"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <label>Overall discount (GMD)</label>
-            <input
-              type="number"
-              min="0"
-              value={purchaseDiscount}
-              onChange={(e) => setPurchaseDiscount(e.target.value)}
-              style={{ width: '100%', marginBottom: '14px' }}
-            />
-
-            <p>
-              <strong>Subtotal: GMD {formatGMD(purchaseSubtotal)}</strong>
-            </p>
-
-            <button
-              className="primary-button"
-              onClick={submitPurchase}
-              disabled={creatingPurchase || purchaseCart.length === 0}
-            >
-              {creatingPurchase ? 'Recording...' : 'Record Purchase'}
-            </button>
-          </div>
-
-          <div className="card">
-            <h3 style={{ marginTop: 0 }}>Recent purchases</h3>
-            {loadingPurchases ? (
-              <p>Loading...</p>
-            ) : purchases.length === 0 ? (
-              <p>No purchases recorded yet. Record your first stock purchase above to add inventory to a branch.</p>
-            ) : (
-              <div className="table-wrapper">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Purchase #</th>
-                      <th>Date</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {purchases.map((purchase) => (
-                      <tr key={purchase.id}>
-                        <td>{purchase.purchase_number}</td>
-                        <td>
-                          {new Date(purchase.created_at).toLocaleDateString()}
-                        </td>
-                        <td>GMD {formatGMD(purchase.total)}</td>
-                        <td>{purchase.status}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   if (ownerPage === 'expenses') {
     return (
@@ -10233,8 +9905,24 @@ export default function App() {
             </div>
             <div className="dashboard-actions">
               <button className="primary-button" onClick={() => openOwnerPage('pos')}>Open POS</button>
-              <button className="secondary-button" onClick={() => openOwnerPage('purchases')}>Record purchase</button>
-              <button className="secondary-button" onClick={() => openOwnerPage('products')}>Manage products</button>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setInventoryTab('stock');
+                  openOwnerPage('inventory');
+                }}
+              >
+                Receive stock
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setInventoryTab('products');
+                  openOwnerPage('inventory');
+                }}
+              >
+                Manage products
+              </button>
             </div>
           </section>
         )}
