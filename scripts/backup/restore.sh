@@ -28,3 +28,4 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass env:BACKUP_PASSPHRASE -in
 make_restore_list "$work/restore.dump" "$work/restore.list"
 pg_restore --no-owner --no-acl --exit-on-error -L "$work/restore.list" --dbname="$TARGET_DB_URL" "$work/restore.dump"
 echo "Restored $(basename "$enc") into $(redact_url "$TARGET_DB_URL"). Check the row counts in $manifest against the new project."
+

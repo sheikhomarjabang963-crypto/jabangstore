@@ -59,3 +59,4 @@ if [ "$mismatch" != "{}" ]; then
   echo "FAIL: restored row counts differ from the manifest: $mismatch" >&2; exit 1
 fi
 echo "VERIFIED (restore + row counts): $(basename "$enc") — $(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(len(d['row_counts']),'tables,',sum(d['row_counts'].values()),'rows')" "$manifest")"
+

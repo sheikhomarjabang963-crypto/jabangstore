@@ -54,3 +54,4 @@ BACKUP_PASSPHRASE="$BACKUP_PASSPHRASE" TARGET_DB_URL="$TEST_SOURCE_DB_URL" SUPAB
 echo
 echo "Result: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
+
