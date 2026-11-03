@@ -1,0 +1,124 @@
+# Nightly encrypted backup of the JabangStore Supabase database (schema AND all records).
+# Storage: GitHub Actions artifacts, kept 35 days (the requirement is at least 30).
+# Secrets required (Settings > Secrets and variables > Actions):
+#   SUPABASE_BACKUP_DB_URL  Session-pooler connection string from Supabase (Connect > Session pooler), with the
+#                           password filled in and sslmode=require. Use the database password, not the anon key.
+#   BACKUP_PASSPHRASE       Long random passphrase that encrypts the backups. Losing it makes every backup unreadable.
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # 02:30 UTC every day
+  workflow_dispatch: {}      # run it by hand from the Actions tab too
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Create encrypted backup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      backup_name: ${{ steps.make.outputs.backup_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 16 client tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client-16
+          pg_dump --version
+
+      - name: Create the encrypted backup
+        id: make
+        env:
+          SUPABASE_BACKUP_DB_URL: ${{ secrets.SUPABASE_BACKUP_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_OUT_DIR: backups
+        run: |
+          set -euo pipefail
+          bash scripts/backup/nightly-backup.sh
+          echo "backup_name=$(ls backups/*.dump.enc | xargs -n1 basename | sed 's/\.dump\.enc$//')" >> "$GITHUB_OUTPUT"
+
+      - name: Verify checksums and that the archive can be read
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          bash scripts/backup/verify-backup.sh backups/*.dump.enc backups/*.manifest.json
+
+      - name: Store the backup as an artifact (kept 35 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jabangstore-db-${{ steps.make.outputs.backup_name }}
+          path: backups/
+          retention-days: 35
+          if-no-files-found: error
+
+  restore-test:
+    name: Restore the backup into an empty database and compare row counts
+    needs: backup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: restore-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 16 client tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client-16
+
+      - name: Download this night's backup
+        uses: actions/download-artifact@v4
+        with:
+          name: jabangstore-db-${{ needs.backup.outputs.backup_name }}
+          path: backups/
+
+      - name: Restore into the empty test database and compare every table's row count
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          RESTORE_TEST_DB_URL: postgresql://postgres:restore-test-only@localhost:5432/postgres
+        run: |
+          set -euo pipefail
+          bash scripts/backup/verify-backup.sh backups/*.dump.enc backups/*.manifest.json
+
+  report:
+    name: Report the backup result
+    needs: [backup, restore-test]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Write the result to the run summary
+        env:
+          BACKUP_RESULT: ${{ needs.backup.result }}
+          RESTORE_RESULT: ${{ needs.restore-test.result }}
+        run: |
+          {
+            echo "## Nightly database backup"
+            echo ""
+            echo "| Step | Result |"
+            echo "|---|---|"
+            echo "| Encrypted backup created and checksummed | $BACKUP_RESULT |"
+            echo "| Backup restored and row counts matched | $RESTORE_RESULT |"
+            echo ""
+            if [ "$BACKUP_RESULT" = "success" ] && [ "$RESTORE_RESULT" = "success" ]; then
+              echo "**Result: backup is complete and verified.** Kept 35 days in this run's artifacts."
+            else
+              echo "**Result: FAILED.** Open the failed job log. Do not rely on last night's backup until a new one passes."
+              exit 1
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
