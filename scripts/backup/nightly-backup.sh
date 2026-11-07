@@ -21,6 +21,8 @@ schema_args=()
 for s in "${BACKUP_SCHEMAS[@]}"; do schema_args+=(--schema="$s"); done
 schema_args+=(--schema='jabang_backup_*')
 
+check_client_version "$SUPABASE_BACKUP_DB_URL"
+
 # 1. Full dump: structure and every record, compressed, without owners or access rights.
 pg_dump "$SUPABASE_BACKUP_DB_URL" --format=custom --compress=9 --no-owner --no-acl \
   "${schema_args[@]}" --file="$work/$base.dump"

@@ -4,6 +4,7 @@
 #   SUPABASE_BACKUP_DB_URL  Session-pooler connection string from Supabase (Connect > Session pooler), with the
 #                           password filled in and sslmode=require. Use the database password, not the anon key.
 #   BACKUP_PASSPHRASE       Long random passphrase that encrypts the backups. Losing it makes every backup unreadable.
+# Client and test-server versions are PostgreSQL 17 because the Supabase database runs PostgreSQL 17.6.
 name: Nightly database backup
 
 on:
@@ -28,10 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install PostgreSQL 16 client tools
+      - name: Install PostgreSQL 17 client tools (must match the Supabase server, PostgreSQL 17)
         run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -y
-          sudo apt-get install -y postgresql-client-16
+          sudo apt-get install -y postgresql-client-17
           pg_dump --version
 
       - name: Create the encrypted backup
@@ -67,7 +72,7 @@ jobs:
     timeout-minutes: 45
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_PASSWORD: restore-test-only
         ports:
@@ -77,10 +82,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install PostgreSQL 16 client tools
+      - name: Install PostgreSQL 17 client tools (must match the Supabase server, PostgreSQL 17)
         run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -y
-          sudo apt-get install -y postgresql-client-16
+          sudo apt-get install -y postgresql-client-17
 
       - name: Download this night's backup
         uses: actions/download-artifact@v4

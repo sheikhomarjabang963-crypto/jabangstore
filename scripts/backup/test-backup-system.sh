@@ -12,6 +12,11 @@ ok()   { echo "  PASS: $1"; pass=$((pass+1)); }
 bad()  { echo "  FAIL: $1"; fail=$((fail+1)); }
 export BACKUP_PASSPHRASE="test-passphrase-$(date +%s)-not-a-real-secret"
 
+echo "0. Client and server versions are compatible"
+client_can_serve 17 17 && client_can_serve 18 17 && ok "client 17 serves server 17" || bad "matching versions rejected"
+! client_can_serve 16 17 && ok "client 16 is refused for a 17 server" || bad "client 16 accepted for a 17 server"
+client_can_serve 17 16 && ok "newer client serves an older server" || bad "newer client refused"
+
 echo "1. Create a backup from the test source"
 SUPABASE_BACKUP_DB_URL="$TEST_SOURCE_DB_URL" BACKUP_OUT_DIR="$work/out" bash "$here/nightly-backup.sh" >"$work/b.log" 2>&1 \
   && ok "backup runs" || { bad "backup failed"; cat "$work/b.log"; }
@@ -54,4 +59,3 @@ BACKUP_PASSPHRASE="$BACKUP_PASSPHRASE" TARGET_DB_URL="$TEST_SOURCE_DB_URL" SUPAB
 echo
 echo "Result: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
-
