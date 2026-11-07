@@ -46,15 +46,18 @@ require_env() {
   done
 }
 
-# Writes a restore list (TOC) for a dump to $2, without recreating Supabase-managed schemas or functions.
-# The auth/storage table data is still restored and counted; only Supabase-provided function definitions
-# and their comments are omitted because the plain PostgreSQL test database does not contain those functions.
+# Writes a restore list (TOC) for a dump to $2, without recreating Supabase-managed schemas,
+# functions, or triggers in auth/storage. The auth/storage tables and their data are still restored
+# and counted. Supabase-managed trigger functions are intentionally omitted from the plain PostgreSQL
+# test database, so their dependent triggers must also be omitted from this test restore.
 make_restore_list() {
   local dump="$1" out="$2"
   pg_restore --list "$dump" \
     | grep -v -E ' SCHEMA - (public|auth|storage)( |$)' \
     | grep -v -E ' FUNCTION (auth|storage) ' \
-    | grep -v -E ' COMMENT - FUNCTION (auth|storage)([ .]|$)' > "$out"
+    | grep -v -E ' COMMENT - FUNCTION (auth|storage)([ .]|$)' \
+    | grep -v -E ' TRIGGER (auth|storage) ' \
+    | grep -v -E ' COMMENT - TRIGGER (auth|storage)([ .]|$)' > "$out"
 }
 
 # pg_dump and pg_restore refuse to work with a server newer than themselves. The JabangStore database runs on
