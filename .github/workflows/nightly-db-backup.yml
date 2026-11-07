@@ -37,7 +37,13 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -y
           sudo apt-get install -y postgresql-client-17
+          # Force subsequent steps and scripts to use PostgreSQL 17 binaries, not Ubuntu's pg_wrapper default.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          echo "pg_dump executable: $(command -v pg_dump)"
+          echo "pg_restore executable: $(command -v pg_restore)"
           pg_dump --version
+          pg_restore --version
 
       - name: Create the encrypted backup
         id: make
@@ -90,6 +96,13 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -y
           sudo apt-get install -y postgresql-client-17
+          # Force subsequent steps and scripts to use PostgreSQL 17 binaries.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          echo "pg_dump executable: $(command -v pg_dump)"
+          echo "pg_restore executable: $(command -v pg_restore)"
+          pg_dump --version
+          pg_restore --version
 
       - name: Download this night's backup
         uses: actions/download-artifact@v4
