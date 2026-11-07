@@ -27,7 +27,7 @@ jobs:
     outputs:
       backup_name: ${{ steps.make.outputs.backup_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install PostgreSQL 17 client tools (must match the Supabase server, PostgreSQL 17)
         run: |
@@ -64,7 +64,7 @@ jobs:
           bash scripts/backup/verify-backup.sh backups/*.dump.enc backups/*.manifest.json
 
       - name: Store the backup as an artifact (kept 35 days)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: jabangstore-db-${{ steps.make.outputs.backup_name }}
           path: backups/
@@ -86,7 +86,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install PostgreSQL 17 client tools (must match the Supabase server, PostgreSQL 17)
         run: |
@@ -105,7 +105,7 @@ jobs:
           pg_restore --version
 
       - name: Download this night's backup
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: jabangstore-db-${{ needs.backup.outputs.backup_name }}
           path: backups/
